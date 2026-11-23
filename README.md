@@ -223,6 +223,7 @@ Unimplemented or partial features are marked in the UI and docs. They are not pr
 - [Changelog 1.5.0](docs/CHANGELOG-1.5.0.md)
 - [Changelog 1.6.0](docs/CHANGELOG-1.6.0.md)
 - [Changelog 1.7.0](docs/CHANGELOG-1.7.0.md)
+- [Changelog 1.8.2](docs/CHANGELOG-1.8.2.md)
 - [Changelog 1.8.1](docs/CHANGELOG-1.8.1.md)
 - [Changelog 1.8.0](docs/CHANGELOG-1.8.0.md)
 - [Class and Rules](docs/CLASS_RULES.md)

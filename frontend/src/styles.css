@@ -1707,3 +1707,68 @@ body:has(#right-nav-panel.open) .strpg-hud-rail { display: none; }
 .strpg-root-narrow .strpg-sidebar { padding: 14px 6px; }
 
 .strpg-launcher { touch-action: none; user-select: none; }
+
+/* --- Responsive content inside the panel (v1.8.2) --- */
+.strpg-shell { container-type: inline-size; }
+
+@container (max-width: 720px) {
+    .strpg-viewport { padding: 16px 13px 48px; }
+    .strpg-topbar { height: auto; min-height: 62px; padding: 9px 13px; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .strpg-topbar-left { gap: 9px; }
+    .strpg-topbar h1 { font-size: 17px; max-width: 100%; }
+    .strpg-topbar-right { flex-wrap: wrap; gap: 6px; }
+    .strpg-campaign-select { max-width: 150px; }
+    .strpg-section-title { flex-wrap: wrap; align-items: flex-start; gap: 8px; }
+    .strpg-section-title > div:first-child { flex: 1 1 100%; }
+    .strpg-section-title h2 { font-size: clamp(19px, 4.6cqw, 24px); }
+    .strpg-grid.two, .strpg-grid.four,
+    .strpg-card-grid, .strpg-item-grid,
+    .strpg-game-grid, .strpg-map-layout,
+    .strpg-equipment-grid { grid-template-columns: 1fr; }
+    .strpg-stat-grid, .strpg-stat-grid.dense { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .strpg-game-hero { grid-template-columns: 1fr; padding: 15px 16px; gap: 10px; }
+    .strpg-game-hero h2 { font-size: clamp(21px, 6cqw, 28px); }
+    .strpg-game-hero-side { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 8px; border-left: 0; padding-left: 0; }
+    .strpg-game-sigil { width: 42px; height: 42px; font-size: 22px; }
+    .strpg-game-hero-facts { flex: 1 1 180px; }
+    .strpg-game-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .strpg-game-strip strong { overflow: hidden; text-overflow: ellipsis; }
+    .strpg-game-exits { grid-template-columns: 1fr; }
+    .strpg-hero-copy h2 { font-size: clamp(21px, 6cqw, 30px); }
+    .strpg-map-svg { height: 44vh; }
+    .strpg-graph-svg { height: 380px; }
+    .strpg-filter-row { flex-wrap: wrap; }
+    .strpg-section-actions .strpg-row { justify-content: flex-start; }
+}
+
+@container (max-width: 520px) {
+    .strpg-viewport { padding: 12px 10px 44px; }
+    .strpg-topbar { padding: 8px 10px; }
+    .strpg-topbar h1 { font-size: 15px; }
+    .strpg-campaign-select { max-width: 118px; }
+    .strpg-section-title h2 { font-size: 19px; }
+    .strpg-game-hero h2, .strpg-hero-copy h2 { font-size: 21px; }
+    .strpg-game-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .strpg-filter-row { flex-direction: column; align-items: stretch; gap: 8px; }
+    .strpg-row { flex-wrap: wrap; }
+    .strpg-equipment-grid { grid-template-columns: 1fr; }
+    .strpg-chip-row { flex-wrap: wrap; }
+    .strpg-stat strong { font-size: 17px; }
+    .strpg-map-svg { height: 40vh; }
+}
+
+@container (max-width: 420px) {
+    .strpg-viewport { padding: 10px 9px 40px; }
+    .strpg-game-hero { padding: 12px 13px; }
+    .strpg-game-hero-side { flex-wrap: nowrap; }
+    .strpg-game-hero-facts strong { font-size: 8.5px; }
+    .strpg-game-hero-facts span { font-size: 7px; }
+    .strpg-topbar-eyebrow { display: none; }
+    .strpg-section-title p { font-size: 11px; }
+}
+
+@container (max-width: 520px) {
+    .strpg-topbar h1 { display: none; }
+    .strpg-topbar-right { flex: 1 1 100%; }
+    .strpg-campaign-select { flex: 1 1 auto; max-width: none; min-width: 0; }
+}

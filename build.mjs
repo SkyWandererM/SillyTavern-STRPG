@@ -17,7 +17,7 @@ const manifest = {
     js: 'index.js',
     css: 'style.css',
     author: 'STRPG',
-    version: '1.8.1',
+    version: '1.8.2',
     homePage: 'https://github.com/SkyWandererM/SillyTavern-STRPG',
     hooks: {},
 };
