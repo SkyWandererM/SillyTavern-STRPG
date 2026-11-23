@@ -1,4 +1,4 @@
-# STRPG — SillyTavern RPG Framework
+# STRPG — SillyTavern RPG Framework(This project is completely built by DeepSeek v4 Flash)
 
 **STRPG** is a complete JRPG framework for SillyTavern. The LLM handles natural language, character performance, and narration. STRPG owns the world, maps, stats, combat, quests, story, equipment, skills, saves, and content production.
 
@@ -68,22 +68,7 @@ npm install --prefix <SillyTavern>/data/<user>/extensions/strpg
 ```
 
 ### Start
-
-```powershell
-node server.js
-# or Start.bat
-```
-
-Expected log lines:
-
-
-```text
-Initializing plugin from ...\plugins\strpg\index.js
-[STRPG] Database ready at ...\data\strpg\strpg.sqlite
-1 server plugin(s) are currently loaded.
-```
-
-On first launch, STRPG seeds a playable example:
+```On first launch, STRPG seeds a playable example:
 
 - World: **Emberfall Frontier**
 - Starting town: **Mistfall Town**
