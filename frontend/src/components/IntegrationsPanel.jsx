@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { api, downloadJson, getStContext } from '../api.js';
 import { Badge, Button, Empty, ErrorBox, Field, Modal, SectionTitle, Select, Textarea } from '../ui.jsx';
+import {
+    isPushEnabled, loadBridge, pullTrackerNarrative, pushMirrorToTracker, setPushEnabled, trackerAvailable,
+} from '../trackerBridge.js';
 
 export function IntegrationsPanel({ campaignId, notify }) {
     const [status, setStatus] = useState(null);
@@ -11,6 +14,10 @@ export function IntegrationsPanel({ campaignId, notify }) {
     const [error, setError] = useState(null);
     const [busy, setBusy] = useState(false);
     const [memoryOpen, setMemoryOpen] = useState(false);
+    const [bridge, setBridge] = useState(null);
+    const [candidates, setCandidates] = useState([]);
+    const [pushOn, setPushOn] = useState(() => isPushEnabled());
+    const [trackerReady, setTrackerReady] = useState(() => trackerAvailable());
 
     const load = async () => {
         setError(null);
@@ -24,6 +31,73 @@ export function IntegrationsPanel({ campaignId, notify }) {
         }
     };
     useEffect(() => { load(); }, [campaignId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const refreshBridge = async () => {
+        if (!campaignId) return;
+        try {
+            const data = await loadBridge(campaignId);
+            setBridge(data.status);
+            setCandidates(data.candidates.candidates ?? []);
+            setTrackerReady(trackerAvailable());
+        } catch (err) {
+            notify(`Bridge status failed: ${err.message}`, 'danger');
+        }
+    };
+    useEffect(() => { refreshBridge(); }, [campaignId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const pullTracker = async () => {
+        if (!campaignId) return;
+        setBusy(true);
+        try {
+            const result = await pullTrackerNarrative(campaignId);
+            notify(`Queued ${result.queued} Tracker field(s) for review${result.skipped.length ? `, skipped ${result.skipped.length}` : ''}.`, result.queued ? 'success' : 'warning');
+            await refreshBridge();
+        } catch (err) {
+            notify(err.message, 'danger');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const pushMirror = async () => {
+        if (!campaignId) return;
+        setBusy(true);
+        try {
+            const result = await pushMirrorToTracker(campaignId);
+            notify(`Wrote one read-only STRPG line into Tracker world events (${result.events} events kept).`, 'success');
+        } catch (err) {
+            notify(err.message, 'danger');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const togglePush = () => {
+        const next = !pushOn;
+        setPushOn(next);
+        setPushEnabled(next);
+        notify(next ? 'Tracker push enabled: the STRPG mirror line will be written when you press Push.' : 'Tracker push disabled.', 'info');
+    };
+
+    const decideCandidate = async (candidate, action) => {
+        if (!campaignId) return;
+        setBusy(true);
+        try {
+            const result = await api(`/campaigns/${campaignId}/bridge/candidates/${candidate.id}/${action}`, {
+                method: 'POST', body: action === 'reject' ? { note: 'Rejected from the bridge panel' } : {},
+            });
+            if (action === 'approve') {
+                notify(`Applied ${result.applied.target}${result.applied.npcKey ? ` (${result.applied.npcKey})` : ''}. Push the world book to publish the change.`, 'success');
+            } else {
+                notify('Candidate rejected.', 'info');
+            }
+            await refreshBridge();
+        } catch (err) {
+            notify(err.message, 'danger');
+        } finally {
+            setBusy(false);
+        }
+    };
 
     const loadMemory = async () => {
         if (!campaignId) return;
@@ -45,7 +119,8 @@ export function IntegrationsPanel({ campaignId, notify }) {
         setBusy(true);
         try {
             const result = await api(`/campaigns/${campaignId}/memory-book/push`, { method: 'POST', body: {} });
-            notify(`Memory book '${result.name}' written to SillyTavern World Info (${result.entries} entries).`, 'success');
+            const stats = result.stats ?? {};
+            notify(`World book '${result.name}' merged: +${stats.added ?? 0} new, ${stats.updated ?? 0} updated, ${stats.removed ?? 0} removed, ${stats.kept ?? 0} kept (${result.entries} total).`, 'success');
         } catch (err) {
             notify(err.message, 'danger');
         } finally {
@@ -173,6 +248,61 @@ export function IntegrationsPanel({ campaignId, notify }) {
                     <p className="strpg-muted">If an external extension is missing or fails, authoritative state remains in STRPG SQLite.</p>
                 </section>
             </div>
+            <section className="strpg-panel">
+                <SectionTitle
+                    eyebrow="M1 · CHAT ↔ RPG BRIDGE"
+                    title="State & Memory Bridge"
+                    description="Pull whitelisted Tracker narrative fields into a review queue, approve them into STRPG, then publish the world book. STRPG stays authoritative for every number."
+                    actions={<Button size="sm" onClick={refreshBridge} disabled={busy}>Refresh Queue</Button>}
+                />
+                <div className="strpg-row wrap">
+                    <Badge tone={trackerReady ? 'success' : 'info'}>{trackerReady ? 'RPG Tracker detected' : 'RPG Tracker not loaded'}</Badge>
+                    <Badge tone={(bridge?.counts?.PENDING ?? 0) ? 'gold' : 'info'}>{bridge?.counts?.PENDING ?? 0} pending candidate(s)</Badge>
+                    {bridge?.lastApply && (
+                        <span className="strpg-muted">
+                            Last applied: {bridge.lastApply.target} · {new Date(bridge.lastApply.appliedAt).toLocaleString()}
+                        </span>
+                    )}
+                </div>
+                <div className="strpg-row wrap">
+                    <Button onClick={pullTracker} disabled={busy || !campaignId || !trackerReady}>Pull Tracker → Review Queue</Button>
+                    <Button variant="ghost" onClick={pushMirror} disabled={busy || !campaignId || !trackerReady || !pushOn}>Push STRPG Mirror → Tracker</Button>
+                    <Button variant={pushOn ? 'gold' : 'ghost'} onClick={togglePush}>
+                        {pushOn ? 'Tracker push: ON' : 'Tracker push: OFF'}
+                    </Button>
+                    <Button variant="gold" onClick={pushWorldInfo} disabled={!campaignId || busy}>Publish World Book (incremental)</Button>
+                    {campaignId && (
+                        <Button variant="ghost" onClick={() => downloadJson(`/campaigns/${campaignId}/bridge/mirror`, 'strpg-bridge-mirror.json').catch((err) => notify(err.message, 'danger'))}>Download Mirror</Button>
+                    )}
+                </div>
+                <p className="strpg-muted">
+                    Relationship changes are capped at ±{bridge?.relationBounds?.maxStep ?? 2} per approval and stay inside {bridge?.relationBounds?.min ?? -100}…{bridge?.relationBounds?.max ?? 100}. Approving a candidate changes STRPG state immediately; publishing the world book makes it visible to the chat.
+                </p>
+                {candidates.length ? (
+                    <div className="strpg-form">
+                        {candidates.map((candidate) => (
+                            <div key={candidate.id} className="strpg-item-card">
+                                <div className="strpg-item-head">
+                                    <div className="strpg-item-icon">{candidate.kind === 'relation' ? '✦' : candidate.kind === 'narrative' ? '✎' : '⚑'}</div>
+                                    <div>
+                                        <strong>{candidate.payload?.npcName ?? candidate.payload?.npcKey ?? 'World narrative'}</strong>
+                                        <span>{candidate.kind} · {candidate.source} · {new Date(candidate.createdAt).toLocaleString()}</span>
+                                    </div>
+                                    <Badge tone="info">{candidate.status}</Badge>
+                                </div>
+                                <p className="strpg-muted">{describeCandidate(candidate)}</p>
+                                {candidate.evidence && Object.keys(candidate.evidence).length > 0 && (
+                                    <code>{JSON.stringify(candidate.evidence).slice(0, 240)}</code>
+                                )}
+                                <div className="strpg-row end">
+                                    <Button variant="gold" onClick={() => decideCandidate(candidate, 'approve')} disabled={busy}>Approve</Button>
+                                    <Button onClick={() => decideCandidate(candidate, 'reject')} disabled={busy}>Reject</Button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : <Empty title="No pending candidates" icon="◇" />}
+            </section>
             {memoryOpen && <Modal
                 title="Memory Books Summary"
                 subtitle="Copy into a Memory Books memory entry or Side Prompt. STRPG never writes its internal database."
@@ -191,9 +321,16 @@ export function IntegrationsPanel({ campaignId, notify }) {
     );
 }
 
-
-
-
-
-
-
+function describeCandidate(candidate) {
+    if (candidate.kind === 'relation') {
+        return `Relation ${candidate.payload?.before ?? '?'} → ${candidate.payload?.after ?? '?'}: ${candidate.payload?.reason ?? ''}`;
+    }
+    if (candidate.kind === 'narrative') {
+        return Object.entries(candidate.payload?.fields ?? {})
+            .map(([key, value]) => `${key}: ${value}`)
+            .join('  ·  ')
+            .slice(0, 400);
+    }
+    if (candidate.kind === 'flag') return `Flag: ${candidate.payload?.flag ?? ''}`;
+    return JSON.stringify(candidate.payload ?? {}).slice(0, 300);
+}

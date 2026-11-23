@@ -154833,6 +154833,104 @@ var import_react20 = __toESM(require_react(), 1);
 
 // frontend/src/components/IntegrationsPanel.jsx
 var import_react19 = __toESM(require_react(), 1);
+
+// frontend/src/trackerBridge.js
+var PUSH_FLAG = "strpg.trackerPush";
+var NARRATIVE_WHITELIST = [
+  "mood",
+  "emotion",
+  "attitude",
+  "relationship",
+  "trust",
+  "affection",
+  "fear",
+  "desire",
+  "thought",
+  "summary",
+  "narrativeFlags",
+  "lastInteraction"
+];
+function getTrackerBridge() {
+  return globalThis.window?.RPGBridge ?? null;
+}
+function trackerAvailable() {
+  const bridge = getTrackerBridge();
+  return Boolean(bridge && bridge.currentTrackerData && typeof bridge.syncChatData === "function");
+}
+function isPushEnabled() {
+  try {
+    return globalThis.localStorage?.getItem(PUSH_FLAG) === "1";
+  } catch {
+    return false;
+  }
+}
+function setPushEnabled(enabled) {
+  try {
+    if (enabled) globalThis.localStorage?.setItem(PUSH_FLAG, "1");
+    else globalThis.localStorage?.removeItem(PUSH_FLAG);
+  } catch {
+  }
+}
+function stringifyValue(value) {
+  if (value == null) return "";
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) return value.map((entry) => String(entry)).join(", ");
+  if (typeof value === "object") return Object.entries(value).map(([key, entry]) => `${key}: ${entry}`).join("; ");
+  return String(value).trim();
+}
+function readTrackerNarrative() {
+  const data = getTrackerBridge()?.currentTrackerData ?? {};
+  const characters = (Array.isArray(data.characters) ? data.characters : []).map((character) => {
+    const name = stringifyValue(character?.name ?? character?.charName ?? character?.id);
+    const out = { name };
+    for (const key of NARRATIVE_WHITELIST) {
+      const value = stringifyValue(character?.[key]);
+      if (value) out[key] = value;
+    }
+    return name ? out : null;
+  }).filter(Boolean).filter((character) => Object.keys(character).length > 1);
+  return { characters };
+}
+async function pullTrackerNarrative(campaignId) {
+  const payload = readTrackerNarrative();
+  if (!payload.characters.length) {
+    throw new Error("RPG Tracker has no narrative fields to pull. Add mood/attitude/summary to a tracker character first.");
+  }
+  return api(`/campaigns/${campaignId}/bridge/tracker/pull`, { method: "POST", body: payload });
+}
+async function pushMirrorToTracker(campaignId) {
+  const bridge = getTrackerBridge();
+  if (!bridge?.currentTrackerData) throw new Error("RPG Tracker is not loaded in this browser.");
+  const mirror = await api(`/campaigns/${campaignId}/bridge/mirror`);
+  const data = JSON.parse(JSON.stringify(bridge.currentTrackerData));
+  const player = mirror.characters?.[0] ?? {};
+  const activeQuests = (mirror.quests ?? []).filter((quest) => ["active", "ready_to_turn_in"].includes(quest.status)).length;
+  const desc = [
+    `STRPG ${mirror.world?.location ?? "unknown"}`,
+    `Lv.${player.level ?? 1} HP ${player.hp ?? "?"}/${player.maxHp ?? "?"} MP ${player.mp ?? "?"}/${player.maxMp ?? "?"}`,
+    `Gold ${player.gold ?? "?"}`,
+    `Quests ${activeQuests}`,
+    mirror.world?.storyNode ? `Story ${mirror.world.storyNode}` : ""
+  ].filter(Boolean).join(" | ");
+  data.worldState = data.worldState && typeof data.worldState === "object" ? data.worldState : {};
+  const events = Array.isArray(data.worldState.events) ? data.worldState.events : [];
+  data.worldState.events = [
+    { id: "strpg_mirror", name: "STRPG", desc: desc.slice(0, 260) },
+    ...events.filter((entry) => entry?.name !== "STRPG")
+  ].slice(0, 12);
+  bridge.syncChatData?.(data);
+  bridge.saveChatData?.(data);
+  return { pushed: true, line: desc, events: data.worldState.events.length };
+}
+async function loadBridge(campaignId) {
+  const [status, candidates] = await Promise.all([
+    api(`/campaigns/${campaignId}/bridge`),
+    api(`/campaigns/${campaignId}/bridge/candidates?status=PENDING`)
+  ]);
+  return { status, candidates };
+}
+
+// frontend/src/components/IntegrationsPanel.jsx
 var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
 function IntegrationsPanel({ campaignId, notify }) {
   const [status, setStatus] = (0, import_react19.useState)(null);
@@ -154843,6 +154941,10 @@ function IntegrationsPanel({ campaignId, notify }) {
   const [error, setError] = (0, import_react19.useState)(null);
   const [busy, setBusy] = (0, import_react19.useState)(false);
   const [memoryOpen, setMemoryOpen] = (0, import_react19.useState)(false);
+  const [bridge, setBridge] = (0, import_react19.useState)(null);
+  const [candidates, setCandidates] = (0, import_react19.useState)([]);
+  const [pushOn, setPushOn] = (0, import_react19.useState)(() => isPushEnabled());
+  const [trackerReady, setTrackerReady] = (0, import_react19.useState)(() => trackerAvailable());
   const load = async () => {
     setError(null);
     try {
@@ -154857,6 +154959,71 @@ function IntegrationsPanel({ campaignId, notify }) {
   (0, import_react19.useEffect)(() => {
     load();
   }, [campaignId]);
+  const refreshBridge = async () => {
+    if (!campaignId) return;
+    try {
+      const data = await loadBridge(campaignId);
+      setBridge(data.status);
+      setCandidates(data.candidates.candidates ?? []);
+      setTrackerReady(trackerAvailable());
+    } catch (err) {
+      notify(`Bridge status failed: ${err.message}`, "danger");
+    }
+  };
+  (0, import_react19.useEffect)(() => {
+    refreshBridge();
+  }, [campaignId]);
+  const pullTracker = async () => {
+    if (!campaignId) return;
+    setBusy(true);
+    try {
+      const result = await pullTrackerNarrative(campaignId);
+      notify(`Queued ${result.queued} Tracker field(s) for review${result.skipped.length ? `, skipped ${result.skipped.length}` : ""}.`, result.queued ? "success" : "warning");
+      await refreshBridge();
+    } catch (err) {
+      notify(err.message, "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const pushMirror = async () => {
+    if (!campaignId) return;
+    setBusy(true);
+    try {
+      const result = await pushMirrorToTracker(campaignId);
+      notify(`Wrote one read-only STRPG line into Tracker world events (${result.events} events kept).`, "success");
+    } catch (err) {
+      notify(err.message, "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const togglePush = () => {
+    const next = !pushOn;
+    setPushOn(next);
+    setPushEnabled(next);
+    notify(next ? "Tracker push enabled: the STRPG mirror line will be written when you press Push." : "Tracker push disabled.", "info");
+  };
+  const decideCandidate = async (candidate, action) => {
+    if (!campaignId) return;
+    setBusy(true);
+    try {
+      const result = await api(`/campaigns/${campaignId}/bridge/candidates/${candidate.id}/${action}`, {
+        method: "POST",
+        body: action === "reject" ? { note: "Rejected from the bridge panel" } : {}
+      });
+      if (action === "approve") {
+        notify(`Applied ${result.applied.target}${result.applied.npcKey ? ` (${result.applied.npcKey})` : ""}. Push the world book to publish the change.`, "success");
+      } else {
+        notify("Candidate rejected.", "info");
+      }
+      await refreshBridge();
+    } catch (err) {
+      notify(err.message, "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
   const loadMemory = async () => {
     if (!campaignId) return;
     setBusy(true);
@@ -154875,7 +155042,8 @@ function IntegrationsPanel({ campaignId, notify }) {
     setBusy(true);
     try {
       const result = await api(`/campaigns/${campaignId}/memory-book/push`, { method: "POST", body: {} });
-      notify(`Memory book '${result.name}' written to SillyTavern World Info (${result.entries} entries).`, "success");
+      const stats = result.stats ?? {};
+      notify(`World book '${result.name}' merged: +${stats.added ?? 0} new, ${stats.updated ?? 0} updated, ${stats.removed ?? 0} removed, ${stats.kept ?? 0} kept (${result.entries} total).`, "success");
     } catch (err) {
       notify(err.message, "danger");
     } finally {
@@ -155001,6 +155169,68 @@ function IntegrationsPanel({ campaignId, notify }) {
         /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("p", { className: "strpg-muted", children: "If an external extension is missing or fails, authoritative state remains in STRPG SQLite." })
       ] })
     ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("section", { className: "strpg-panel", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
+        SectionTitle,
+        {
+          eyebrow: "M1 \xB7 CHAT \u2194 RPG BRIDGE",
+          title: "State & Memory Bridge",
+          description: "Pull whitelisted Tracker narrative fields into a review queue, approve them into STRPG, then publish the world book. STRPG stays authoritative for every number.",
+          actions: /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { size: "sm", onClick: refreshBridge, disabled: busy, children: "Refresh Queue" })
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: "strpg-row wrap", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Badge, { tone: trackerReady ? "success" : "info", children: trackerReady ? "RPG Tracker detected" : "RPG Tracker not loaded" }),
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Badge, { tone: bridge?.counts?.PENDING ?? 0 ? "gold" : "info", children: [
+          bridge?.counts?.PENDING ?? 0,
+          " pending candidate(s)"
+        ] }),
+        bridge?.lastApply && /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("span", { className: "strpg-muted", children: [
+          "Last applied: ",
+          bridge.lastApply.target,
+          " \xB7 ",
+          new Date(bridge.lastApply.appliedAt).toLocaleString()
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: "strpg-row wrap", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { onClick: pullTracker, disabled: busy || !campaignId || !trackerReady, children: "Pull Tracker \u2192 Review Queue" }),
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { variant: "ghost", onClick: pushMirror, disabled: busy || !campaignId || !trackerReady || !pushOn, children: "Push STRPG Mirror \u2192 Tracker" }),
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { variant: pushOn ? "gold" : "ghost", onClick: togglePush, children: pushOn ? "Tracker push: ON" : "Tracker push: OFF" }),
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { variant: "gold", onClick: pushWorldInfo, disabled: !campaignId || busy, children: "Publish World Book (incremental)" }),
+        campaignId && /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { variant: "ghost", onClick: () => downloadJson(`/campaigns/${campaignId}/bridge/mirror`, "strpg-bridge-mirror.json").catch((err) => notify(err.message, "danger")), children: "Download Mirror" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("p", { className: "strpg-muted", children: [
+        "Relationship changes are capped at \xB1",
+        bridge?.relationBounds?.maxStep ?? 2,
+        " per approval and stay inside ",
+        bridge?.relationBounds?.min ?? -100,
+        "\u2026",
+        bridge?.relationBounds?.max ?? 100,
+        ". Approving a candidate changes STRPG state immediately; publishing the world book makes it visible to the chat."
+      ] }),
+      candidates.length ? /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("div", { className: "strpg-form", children: candidates.map((candidate) => /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: "strpg-item-card", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: "strpg-item-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("div", { className: "strpg-item-icon", children: candidate.kind === "relation" ? "\u2726" : candidate.kind === "narrative" ? "\u270E" : "\u2691" }),
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("strong", { children: candidate.payload?.npcName ?? candidate.payload?.npcKey ?? "World narrative" }),
+            /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("span", { children: [
+              candidate.kind,
+              " \xB7 ",
+              candidate.source,
+              " \xB7 ",
+              new Date(candidate.createdAt).toLocaleString()
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Badge, { tone: "info", children: candidate.status })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("p", { className: "strpg-muted", children: describeCandidate(candidate) }),
+        candidate.evidence && Object.keys(candidate.evidence).length > 0 && /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("code", { children: JSON.stringify(candidate.evidence).slice(0, 240) }),
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: "strpg-row end", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { variant: "gold", onClick: () => decideCandidate(candidate, "approve"), disabled: busy, children: "Approve" }),
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { onClick: () => decideCandidate(candidate, "reject"), disabled: busy, children: "Reject" })
+        ] })
+      ] }, candidate.id)) }) : /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Empty, { title: "No pending candidates", icon: "\u25C7" })
+    ] }),
     memoryOpen && /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
       Modal,
       {
@@ -155019,6 +155249,16 @@ function IntegrationsPanel({ campaignId, notify }) {
       }
     )
   ] });
+}
+function describeCandidate(candidate) {
+  if (candidate.kind === "relation") {
+    return `Relation ${candidate.payload?.before ?? "?"} \u2192 ${candidate.payload?.after ?? "?"}: ${candidate.payload?.reason ?? ""}`;
+  }
+  if (candidate.kind === "narrative") {
+    return Object.entries(candidate.payload?.fields ?? {}).map(([key, value]) => `${key}: ${value}`).join("  \xB7  ").slice(0, 400);
+  }
+  if (candidate.kind === "flag") return `Flag: ${candidate.payload?.flag ?? ""}`;
+  return JSON.stringify(candidate.payload ?? {}).slice(0, 300);
 }
 
 // frontend/src/components/Settings.jsx
@@ -155842,7 +156082,12 @@ function App() {
         notify("LLM tool call was not valid JSON and was ignored.", "warning");
         return;
       }
-      const allowed = /* @__PURE__ */ new Set(["strpg_propose_movement", "strpg_propose_encounter", "strpg_propose_character_reaction"]);
+      const allowed = /* @__PURE__ */ new Set([
+        "strpg_propose_movement",
+        "strpg_propose_encounter",
+        "strpg_propose_character_reaction",
+        "strpg_propose_relation"
+      ]);
       if (!allowed.has(call.tool)) {
         notify(`Disallowed tool call: ${call.tool}`, "warning");
         return;
@@ -155858,6 +156103,8 @@ function App() {
           notify("The LLM proposed a hostile encounter. A combat entrance is now available.", "gold");
           await refresh(activeCampaign, { silent: true });
           setTab("combat");
+        } else if (call.tool === "strpg_propose_relation") {
+          notify("Relationship proposal queued for review. Open Integrations -> Bridge to approve it.", "gold");
         } else {
           notify("LLM narrative reaction proposal recorded; no stats changed.", "info");
         }
@@ -155901,6 +156148,8 @@ function App() {
         "If the player explicitly asks to move or a hostile encounter is clearly triggered, you may append exactly one proposal block:",
         '<strpg>{"tool":"strpg_propose_movement","args":{"location":"location_key"}}</strpg>',
         '<strpg>{"tool":"strpg_propose_encounter","args":{"monsters":[{"monsterKey":"monster_key","count":1}]}}</strpg>',
+        "If the scene clearly changes an NPC relationship (help, betrayal, gift, promise), you may append one relation proposal. Max \xB12, requires player approval:",
+        '<strpg>{"tool":"strpg_propose_relation","args":{"npcKey":"npc_key","delta":1,"reason":"short evidence from the scene"}}</strpg>',
         "A proposal is not an action. The player must confirm; never claim the move or combat already happened before STRPG confirms it.",
         "Do not output SQL, code, or tool calls for direct stat changes."
       ].join("\n");

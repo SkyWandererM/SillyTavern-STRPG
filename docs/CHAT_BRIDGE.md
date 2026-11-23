@@ -1,5 +1,24 @@
 # Chat ↔ RPG Bridge (设计稿 v0.1)
 
+## 0. M1 实施状态（v1.4.0 已完成）
+
+| 能力 | 落地位置 |
+|---|---|
+| 增量世界书（稳定条目 id、只改自己的条目、旧条目收养） | `plugin/src/lorebook.js`，`buildEntries` / `mergeEntries` / `pushLorebook` |
+| 只读状态镜像 | `plugin/src/bridge.js` → `trackerMirror`，`GET /campaigns/:id/bridge/mirror` |
+| Tracker → 审核队列 | `pullTrackerNarrative`，`POST /campaigns/:id/bridge/tracker/pull` |
+| 关系提案 tool | `strpg_propose_relation`（±2 上限、PENDING 去重） |
+| 审核 → 事务应用 | `approveCandidate` / `rejectCandidate` + `bridge_apply_log` |
+| 数据库 | `bridge_candidates`（部分唯一索引仅约束 PENDING）、`bridge_apply_log`，schema v4 |
+| 前端 | `frontend/src/trackerBridge.js` + Integrations → **State & Memory Bridge** 面板 |
+| 测试 | `tests/bridge.test.js`（9 例，套件合计 48） |
+
+已实测（本机 Emberfall Demo）：旧世界书 13 条无标记条目被识别为遗留并替换，新写入 14 条带 `[STRPG]` 标记的条目，用户手写条目 0 条受影响。
+
+尚未实现（M2/M3）：scope 定义与扫描器、trade/barter tool、角色卡→NPC 导入、`chat` 交互类型。
+
+---
+
 目标：让 RPG 与聊天共用一套「记忆 + 关系 + 状态」，两个方向都能走：
 
 1. **聊天里的角色进入 RPG**（复用现有 chat 的 persona/角色卡当 NPC 或玩家）
@@ -368,7 +387,7 @@ GET  /campaigns/:id/lorebook                   → 增量导出（只含 STRPG �
 
 | 阶段 | 内容 | 验收 |
 |---|---|---|
-| **M1 状态桥**（1–2 天） | `trackerAdapter`（push/pull）+ 动态世界书增量 upsert + `strpg_propose_relation` tool | 聊天里改关系 → 审核 → 世界书与 tracker 同步；RPG 状态在聊天首条消息即生效 |
+| **M1 状态桥** ✅ v1.4.0 | `trackerAdapter`（push/pull）+ 动态世界书增量 upsert + `strpg_propose_relation` tool | 聊天里改关系 → 审核 → 世界书与 tracker 同步；RPG 状态在聊天首条消息即生效 |
 | **M2 交易/对话**（2–3 天） | `chat` 交互类型 + `propose_trade` / `propose_barter` / `propose_gift` + 提案卡 + 事务 | 砍价成功/失败、抵账生成任务并自动结清，均有审计 |
 | **M3 Scope**（3–4 天） | scope 表 + 扫描器 + inbox + 审核 UI + 去重/相似度 + 撤销 | 指定区间扫描 → 候选 → 审核 → 世界书/状态更新；重复运行不产生重复条目 |
 | **M4 角色双向**（2 天） | 角色卡→NPC 导入、character_bindings、NPC 专属书选择、独立聊天模式 | 两种入场方式都能带着记忆来回切换，切聊天不丢状态 |

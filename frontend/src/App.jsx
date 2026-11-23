@@ -405,7 +405,12 @@ export function App() {
                 notify('LLM tool call was not valid JSON and was ignored.', 'warning');
                 return;
             }
-            const allowed = new Set(['strpg_propose_movement', 'strpg_propose_encounter', 'strpg_propose_character_reaction']);
+            const allowed = new Set([
+                'strpg_propose_movement',
+                'strpg_propose_encounter',
+                'strpg_propose_character_reaction',
+                'strpg_propose_relation',
+            ]);
             if (!allowed.has(call.tool)) {
                 notify(`Disallowed tool call: ${call.tool}`, 'warning');
                 return;
@@ -421,6 +426,8 @@ export function App() {
                     notify('The LLM proposed a hostile encounter. A combat entrance is now available.', 'gold');
                     await refresh(activeCampaign, { silent: true });
                     setTab('combat');
+                } else if (call.tool === 'strpg_propose_relation') {
+                    notify('Relationship proposal queued for review. Open Integrations -> Bridge to approve it.', 'gold');
                 } else {
                     notify('LLM narrative reaction proposal recorded; no stats changed.', 'info');
                 }
@@ -466,6 +473,8 @@ export function App() {
                 'If the player explicitly asks to move or a hostile encounter is clearly triggered, you may append exactly one proposal block:',
                 '<strpg>{"tool":"strpg_propose_movement","args":{"location":"location_key"}}</strpg>',
                 '<strpg>{"tool":"strpg_propose_encounter","args":{"monsters":[{"monsterKey":"monster_key","count":1}]}}</strpg>',
+                'If the scene clearly changes an NPC relationship (help, betrayal, gift, promise), you may append one relation proposal. Max ±2, requires player approval:',
+                '<strpg>{"tool":"strpg_propose_relation","args":{"npcKey":"npc_key","delta":1,"reason":"short evidence from the scene"}}</strpg>',
                 'A proposal is not an action. The player must confirm; never claim the move or combat already happened before STRPG confirms it.',
                 'Do not output SQL, code, or tool calls for direct stat changes.',
             ].join('\n');

@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const SCHEMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -490,6 +490,39 @@ CREATE TABLE IF NOT EXISTS app_settings (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS bridge_candidates (
+    id TEXT PRIMARY KEY,
+    campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'manual',
+    payload_json TEXT NOT NULL,
+    evidence_json TEXT NOT NULL DEFAULT '{}',
+    confidence REAL,
+    dedupe_hash TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    created_at TEXT NOT NULL,
+    reviewed_at TEXT,
+    applied_at TEXT,
+    note TEXT NOT NULL DEFAULT ''
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bridge_candidates_dedupe
+    ON bridge_candidates(campaign_id, dedupe_hash) WHERE status = 'PENDING';
+CREATE INDEX IF NOT EXISTS idx_bridge_candidates_queue
+    ON bridge_candidates(campaign_id, status, created_at);
+
+CREATE TABLE IF NOT EXISTS bridge_apply_log (
+    id TEXT PRIMARY KEY,
+    campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+    candidate_id TEXT,
+    target TEXT NOT NULL,
+    before_json TEXT,
+    after_json TEXT,
+    applied_by TEXT NOT NULL DEFAULT 'server',
+    applied_at TEXT NOT NULL,
+    undone_at TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_assets_project ON content_assets(project_id, kind, status);
 CREATE INDEX IF NOT EXISTS idx_versions_project ON game_versions(project_id, status);
 CREATE INDEX IF NOT EXISTS idx_locations_world ON locations(world_id);
@@ -513,7 +546,7 @@ export const REQUIRED_TABLES = [
     'location_discoveries', 'encounter_spawns', 'event_definitions', 'story_nodes', 'story_edges', 'quest_definitions', 'quest_nodes',
     'quest_edges', 'quest_instances', 'combat_sessions', 'combat_participants', 'combat_actions',
     'game_events', 'save_snapshots', 'game_projects', 'content_assets', 'content_versions',
-    'content_reviews', 'tracker_sync_log',
+    'content_reviews', 'tracker_sync_log', 'bridge_candidates', 'bridge_apply_log',
 ];
 
 

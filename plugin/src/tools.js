@@ -5,6 +5,7 @@ import { proposeEncounter, getCombatContextForLLM } from './combat.js';
 import { listQuests } from './quests.js';
 import { availableInteractionsAtCurrentLocation } from './interactions.js';
 import { nowIso, uuid } from './util.js';
+import { proposeRelation, trackerMirror } from './bridge.js';
 
 const REACTION_FIELDS = new Set(['npcKey', 'emotion', 'attitude', 'thought', 'gesture', 'summary']);
 
@@ -17,6 +18,8 @@ export const TOOL_DEFINITIONS = [
     { name: 'strpg_propose_character_reaction', description: 'Record a narrative-only NPC reaction proposal. Cannot change stats.', input: { campaignId: 'string', npcKey: 'string', reaction: 'object' } },
     { name: 'strpg_get_quest_status', description: 'List quests and objective progress.', input: { campaignId: 'string' } },
     { name: 'strpg_get_available_interactions', description: 'List NPC interactions at the current location.', input: { campaignId: 'string' } },
+    { name: 'strpg_get_bridge_mirror', description: 'Read the read-only STRPG state mirror used for tracker and lorebook sync.', input: { campaignId: 'string' } },
+    { name: 'strpg_propose_relation', description: 'Propose an NPC relationship change for human review. Cannot change stats directly.', input: { campaignId: 'string', npcKey: 'string', delta: 'number', reason: 'string', evidence: 'object' } },
 ];
 
 export function callTool(db, name, args = {}) {
@@ -59,6 +62,25 @@ export function callTool(db, name, args = {}) {
     }
     if (name === 'strpg_get_available_interactions') {
         return { interactions: availableInteractionsAtCurrentLocation(db, campaignId) };
+    }
+    if (name === 'strpg_get_bridge_mirror') {
+        return trackerMirror(db, campaignId);
+    }
+    if (name === 'strpg_propose_relation') {
+        const result = proposeRelation(db, campaignId, {
+            npcKey: args.npcKey,
+            delta: args.delta,
+            reason: args.reason,
+            evidence: args.evidence ?? { source: 'llm-tool' },
+            source: 'llm',
+        });
+        return {
+            accepted: true,
+            authoritative: false,
+            duplicate: result.duplicate,
+            candidate: result.candidate,
+            note: 'Queued for review. The relationship changes only after approval.',
+        };
     }
     if (name === 'strpg_propose_character_reaction') {
         const reaction = args.reaction ?? {};

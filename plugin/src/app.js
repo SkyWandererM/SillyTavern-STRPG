@@ -34,11 +34,14 @@ import {
 import { createBackup, deleteBackup, listBackups, restoreBackup } from './backups.js';
 import { importNpcToTavern } from './tavern.js';
 import { buildMemoryBook, pushMemoryBook } from './memorybook.js';
+import {
+    approveCandidate, bridgeStatus, listCandidates, pullTrackerNarrative, rejectCandidate, trackerMirror,
+} from './bridge.js';
 import { databaseInfo, readSetting, verifySchema, writeSetting } from './db.js';
 import { seedExampleProject } from './seed.js';
 import { idempotent, nowIso, parseJson, uuid, withTransaction } from './util.js';
 
-export const PLUGIN_VERSION = '1.3.0';
+export const PLUGIN_VERSION = '1.4.0';
 
 function wrap(handler) {
     return (req, res, next) => {
@@ -203,7 +206,13 @@ export function createRouter(db) {
     router.get('/campaigns/:id', wrap((req, res) => send(res, fullCampaignView(db, req.params.id))));
     router.patch('/campaigns/:id', wrap((req, res) => send(res, updateCampaign(db, req.params.id, req.body))));
     router.get('/campaigns/:id/memory-book', wrap((req, res) => send(res, buildMemoryBook(db, req.params.id))));
-    router.post('/campaigns/:id/memory-book/push', wrap(async (req, res) => send(res, await pushMemoryBook(db, req.params.id, req))));
+    router.post('/campaigns/:id/memory-book/push', wrap(async (req, res) => {
+        send(res, await pushMemoryBook(db, req.params.id, req, {
+            dryRun: req.body?.dryRun === true,
+            replace: req.body?.replace === true,
+            adoptLegacy: req.body?.adoptLegacy !== false,
+        }));
+    }));
     router.get('/campaigns/:id/dashboard', wrap((req, res) => send(res, getDashboard(db, req.params.id))));
     router.get('/campaigns/:id/upgrades', wrap((req, res) => send(res, listCampaignUpgrades(db, req.params.id))));
     router.get('/campaigns/:id/upgrades/:versionId/preview', wrap((req, res) => {
@@ -406,6 +415,22 @@ export function createRouter(db) {
     router.get('/campaigns/:id/integrations/memory-books', wrap((req, res) => send(res, memoryBooksPayload(db, req.params.id))));
     router.get('/campaigns/:id/integrations/map-regions/export', wrap((req, res) => send(res, exportMapRegions(db, req.params.id))));
     router.post('/campaigns/:id/integrations/map-regions/import', wrap((req, res) => send(res, importMapRegions(db, req.params.id, req.body))));
+
+    // Chat <-> RPG bridge (state mirror, reviewed memory candidates, incremental lorebook)
+    router.get('/campaigns/:id/bridge', wrap((req, res) => send(res, bridgeStatus(db, req.params.id))));
+    router.get('/campaigns/:id/bridge/mirror', wrap((req, res) => send(res, trackerMirror(db, req.params.id))));
+    router.post('/campaigns/:id/bridge/tracker/pull', wrap((req, res) => {
+        send(res, pullTrackerNarrative(db, req.params.id, req.body ?? {}));
+    }));
+    router.get('/campaigns/:id/bridge/candidates', wrap((req, res) => {
+        send(res, listCandidates(db, req.params.id, { status: req.query.status, limit: req.query.limit }));
+    }));
+    router.post('/campaigns/:id/bridge/candidates/:candidateId/approve', wrap((req, res) => {
+        send(res, approveCandidate(db, req.params.id, req.params.candidateId, { appliedBy: req.body?.appliedBy ?? 'ui' }));
+    }));
+    router.post('/campaigns/:id/bridge/candidates/:candidateId/reject', wrap((req, res) => {
+        send(res, rejectCandidate(db, req.params.id, req.params.candidateId, { note: req.body?.note }));
+    }));
 
     router.get('/tools', wrap((req, res) => send(res, TOOL_DEFINITIONS)));
     router.post('/tools/:name', requireToolToken, wrap((req, res) => {

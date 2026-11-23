@@ -343,6 +343,30 @@ thought, summary, narrativeFlags, lastInteraction
 
 Any `hp/mp/exp/gold/item/skill` field returns 422.
 
+### Bridge (M1)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/campaigns/:id/bridge` | Candidate counts, relation bounds, last apply |
+| GET | `/campaigns/:id/bridge/mirror` | Read-only projection for RPG Tracker / lorebook |
+| POST | `/campaigns/:id/bridge/tracker/pull` | `{characters:[{name,mood,trust,...}], world:{...}}` → review queue |
+| GET | `/campaigns/:id/bridge/candidates?status=PENDING` | Review queue |
+| POST | `/campaigns/:id/bridge/candidates/:cid/approve` | Apply one candidate (transaction + audit) |
+| POST | `/campaigns/:id/bridge/candidates/:cid/reject` | `{note}` |
+| POST | `/campaigns/:id/memory-book/push` | Incremental world book merge (`{dryRun?, replace?, adoptLegacy?}`) |
+
+Semantics:
+
+- Pull never writes state. Whitelisted narrative fields become `bridge_candidates`
+  rows (`kind: narrative`) with evidence; `hp/gold/...` are stripped before queueing.
+- `strpg_propose_relation` queues `kind: relation`; a single proposal is capped at
+  ±2 and clamped to −100…100. Approval is the only write path.
+- Applying writes `narrative_state` / `campaign_variables` / `game_events` and a
+  `bridge_apply_log` row. Re-approving a non-pending candidate returns 409.
+- `memory-book/push` reads the existing book, upserts only `[STRPG]`-marked entries
+  and prunes stale ones. Entries written by the old full-replace push have no marker;
+  inside the STRPG-named book they are adopted by memo match (`adoptLegacy`, default on).
+
 ## 13. LLM tools
 
 | Tool | Purpose | Mutates state |
@@ -355,6 +379,8 @@ Any `hp/mp/exp/gold/item/skill` field returns 422.
 | `strpg_propose_character_reaction` | Record narrative reaction | Audit only, no stats |
 | `strpg_get_quest_status` | Quest progress | No |
 | `strpg_get_available_interactions` | NPC interactions | No |
+| `strpg_get_bridge_mirror` | Read-only state mirror | No |
+| `strpg_propose_relation` | Queue an NPC relation change (±2) | No (candidate only) |
 
 ```http
 POST /tools/strpg_get_status

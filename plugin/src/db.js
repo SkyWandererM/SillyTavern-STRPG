@@ -66,6 +66,44 @@ export const MIGRATIONS = [
             `);
         },
     },
+    {
+        version: 4,
+        name: 'bridge-candidates-and-apply-log',
+        up(db) {
+            db.exec(`
+                CREATE TABLE IF NOT EXISTS bridge_candidates (
+                    id TEXT PRIMARY KEY,
+                    campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+                    kind TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'manual',
+                    payload_json TEXT NOT NULL,
+                    evidence_json TEXT NOT NULL DEFAULT '{}',
+                    confidence REAL,
+                    dedupe_hash TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'PENDING',
+                    created_at TEXT NOT NULL,
+                    reviewed_at TEXT,
+                    applied_at TEXT,
+                    note TEXT NOT NULL DEFAULT ''
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_bridge_candidates_dedupe
+                    ON bridge_candidates(campaign_id, dedupe_hash) WHERE status = 'PENDING';
+                CREATE INDEX IF NOT EXISTS idx_bridge_candidates_queue
+                    ON bridge_candidates(campaign_id, status, created_at);
+                CREATE TABLE IF NOT EXISTS bridge_apply_log (
+                    id TEXT PRIMARY KEY,
+                    campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+                    candidate_id TEXT,
+                    target TEXT NOT NULL,
+                    before_json TEXT,
+                    after_json TEXT,
+                    applied_by TEXT NOT NULL DEFAULT 'server',
+                    applied_at TEXT NOT NULL,
+                    undone_at TEXT
+                );
+            `);
+        },
+    },
 ];
 
 export function ensureDir(directory) {
