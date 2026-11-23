@@ -156480,12 +156480,12 @@ function App() {
         return null;
       }
     })();
-    if (!activeCampaign || !character?.avatar) {
+    if (!campaignId || !character?.avatar) {
       setBoundNpcLine("");
       return () => {
       };
     }
-    api(`/campaigns/${activeCampaign}/bindings/context?avatar=${encodeURIComponent(character.avatar)}`).then((result) => {
+    api(`/campaigns/${campaignId}/bindings/context?avatar=${encodeURIComponent(character.avatar)}`).then((result) => {
       if (!cancelled) setBoundNpcLine(result?.context?.line ?? "");
     }).catch(() => {
       if (!cancelled) setBoundNpcLine("");
@@ -156493,7 +156493,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [activeCampaign, chatKey]);
+  }, [campaignId, chatKey]);
   const updateChatIdentity = (0, import_react22.useCallback)(() => {
     try {
       const next = { key: hasChat() ? getChatKey() : null, name: getChatName() };
@@ -156604,12 +156604,12 @@ function App() {
       }
     };
     const onMessage = async (messageId) => {
-      const activeCampaign2 = campaignRef.current;
-      if (!activeCampaign2) return;
+      const activeCampaign = campaignRef.current;
+      if (!activeCampaign) return;
       const message = ctx.chat?.[messageId];
       if (!message?.mes) return;
-      void maybeAutoScan(activeCampaign2, notify);
-      void refresh(activeCampaign2, { silent: true });
+      void maybeAutoScan(activeCampaign, notify);
+      void refresh(activeCampaign, { silent: true });
       const dedupeKey = `${getChatKey()}:${messageId}:${message.swipe_id ?? 0}`;
       if (seenMessages.current.has(dedupeKey)) return;
       const match = String(message.mes).match(/<strpg>\s*([\s\S]*?)\s*<\/strpg>/i) ?? String(message.mes).match(/```(?:strpg|strpg-tool)\s*\n([\s\S]*?)```/i);
@@ -156641,13 +156641,13 @@ function App() {
       try {
         const result = await api(`/tools/${call.tool}`, {
           method: "POST",
-          body: { campaignId: activeCampaign2, ...call.args ?? {} }
+          body: { campaignId: activeCampaign, ...call.args ?? {} }
         });
         if (call.tool === "strpg_propose_movement") {
           setProposal({ result: result.result });
         } else if (call.tool === "strpg_propose_encounter") {
           notify("The LLM proposed a hostile encounter. A combat entrance is now available.", "gold");
-          await refresh(activeCampaign2, { silent: true });
+          await refresh(activeCampaign, { silent: true });
           setTab("combat");
         } else if (call.tool === "strpg_propose_relation") {
           notify("Relationship proposal queued for review. Open Integrations -> Bridge to approve it.", "gold");
@@ -156656,7 +156656,7 @@ function App() {
         } else if (call.tool === "strpg_receive_signal") {
           const released = result.result?.released?.length ?? 0;
           notify(`Favour signal recorded. ${released} proposal(s) released.`, "success");
-          await refresh(activeCampaign2, { silent: true });
+          await refresh(activeCampaign, { silent: true });
         } else if (["strpg_propose_trade", "strpg_propose_recruit", "strpg_propose_tuition", "strpg_propose_recovery"].includes(call.tool)) {
           notify("NPC service proposal queued for review. Open Integrations -> Bridge to accept or decline.", "gold");
         } else {
@@ -156676,11 +156676,11 @@ function App() {
   }, [loadBinding, notify, refresh, selectCampaign, updateChatIdentity]);
   (0, import_react22.useEffect)(() => {
     const onBridgeChanged = () => {
-      if (activeCampaign) refresh(activeCampaign, { silent: true });
+      if (campaignId) refresh(campaignId, { silent: true });
     };
     globalThis.window?.addEventListener?.("strpg:bridge-changed", onBridgeChanged);
     return () => globalThis.window?.removeEventListener?.("strpg:bridge-changed", onBridgeChanged);
-  }, [activeCampaign, refresh]);
+  }, [campaignId, refresh]);
   (0, import_react22.useEffect)(() => {
     const menu = document.getElementById("extensionsMenu");
     if (!menu) return void 0;

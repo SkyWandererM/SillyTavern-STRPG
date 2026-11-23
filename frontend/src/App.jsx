@@ -283,15 +283,15 @@ export function App() {
         const character = (() => {
             try { return currentCharacter(); } catch { return null; }
         })();
-        if (!activeCampaign || !character?.avatar) {
+        if (!campaignId || !character?.avatar) {
             setBoundNpcLine('');
             return () => {};
         }
-        api(`/campaigns/${activeCampaign}/bindings/context?avatar=${encodeURIComponent(character.avatar)}`)
+        api(`/campaigns/${campaignId}/bindings/context?avatar=${encodeURIComponent(character.avatar)}`)
             .then((result) => { if (!cancelled) setBoundNpcLine(result?.context?.line ?? ''); })
             .catch(() => { if (!cancelled) setBoundNpcLine(''); });
         return () => { cancelled = true; };
-    }, [activeCampaign, chatKey]);
+    }, [campaignId, chatKey]);
 
     const updateChatIdentity = useCallback(() => {
         try {
@@ -480,11 +480,11 @@ export function App() {
 
     useEffect(() => {
         const onBridgeChanged = () => {
-            if (activeCampaign) refresh(activeCampaign, { silent: true });
+            if (campaignId) refresh(campaignId, { silent: true });
         };
         globalThis.window?.addEventListener?.('strpg:bridge-changed', onBridgeChanged);
         return () => globalThis.window?.removeEventListener?.('strpg:bridge-changed', onBridgeChanged);
-    }, [activeCampaign, refresh]);
+    }, [campaignId, refresh]);
 
     useEffect(() => {
         const menu = document.getElementById('extensionsMenu');
