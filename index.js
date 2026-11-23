@@ -156303,13 +156303,14 @@ function useToast() {
   }, []);
   return { toast, notify };
 }
-function Launcher({ onClick, position, onPositionChange, visible = true }) {
+function Launcher({ onClick, position, onPositionChange, onReset, visible = true }) {
   const drag = (0, import_react22.useRef)(null);
   const suppressClick = (0, import_react22.useRef)(false);
   const clamp = (value, min, max) => Math.min(Math.max(value, min), Math.max(min, max));
   if (!visible) return null;
   const onPointerDown = (event) => {
     if (event.button !== 0) return;
+    event.preventDefault();
     drag.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, left: position.left, top: position.top, moved: false };
     event.currentTarget.setPointerCapture?.(event.pointerId);
   };
@@ -156318,7 +156319,7 @@ function Launcher({ onClick, position, onPositionChange, visible = true }) {
     if (!active || active.pointerId !== event.pointerId) return;
     const dx = event.clientX - active.startX;
     const dy = event.clientY - active.startY;
-    if (Math.abs(dx) + Math.abs(dy) > 5) active.moved = true;
+    if (Math.abs(dx) + Math.abs(dy) > 3) active.moved = true;
     if (!active.moved) return;
     const width = 54;
     const height = 54;
@@ -156337,7 +156338,7 @@ function Launcher({ onClick, position, onPositionChange, visible = true }) {
     {
       type: "button",
       className: "strpg-launcher",
-      style: { left: `${position.left}px`, top: `${position.top}px` },
+      style: { left: `${position.left}px`, top: `${position.top}px`, touchAction: "none" },
       onPointerDown,
       onPointerMove,
       onPointerUp,
@@ -156349,11 +156350,42 @@ function Launcher({ onClick, position, onPositionChange, visible = true }) {
         }
         onClick();
       },
-      title: "FULL \xB7 Open STRPG side panel \xB7 Drag to move",
+      onDoubleClick: () => onReset?.(),
+      title: "Open STRPG \xB7 drag to move \xB7 double-click to reset position",
       "aria-label": "Open STRPG",
       children: /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("span", { className: "strpg-launcher-mark", children: "S" })
     }
   );
+}
+function panelRootStyle(layout) {
+  if (layout.mode === "dock") {
+    return {
+      left: `${layout.left}px`,
+      top: `${layout.top}px`,
+      width: `${layout.width}px`,
+      height: `${layout.height}px`,
+      right: "auto",
+      bottom: "auto"
+    };
+  }
+  if (layout.mode === "overlay") {
+    return {
+      right: `${layout.right ?? 8}px`,
+      top: `${layout.top ?? 8}px`,
+      width: `${layout.width}px`,
+      height: `${layout.height}px`,
+      left: "auto",
+      bottom: "auto"
+    };
+  }
+  return { inset: 0, width: "100vw", height: "100vh" };
+}
+function panelRootClass(layout, tab) {
+  const classes = ["strpg-root", `strpg-root-${layout.mode}`];
+  if (layout.mode === "dock" && layout.width < 640) classes.push("strpg-root-compact");
+  if (layout.mode === "dock" && layout.width < 380) classes.push("strpg-root-narrow");
+  if (tab === "studio") classes.push("strpg-root-studio");
+  return classes.join(" ");
 }
 function ChatCombatAlert({ dashboard, onOpenCombat }) {
   const [host, setHost] = (0, import_react22.useState)(null);
@@ -156425,18 +156457,23 @@ function ProposalModal({ proposal, onClose, onConfirm, busy }) {
 }
 function App() {
   const [open, setOpen] = (0, import_react22.useState)(false);
+  const launcherDefault = () => ({
+    left: 16,
+    top: Math.max(72, (typeof window !== "undefined" ? window.innerHeight : 800) - 120)
+  });
   const [launcherPosition, setLauncherPosition] = (0, import_react22.useState)(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("strpg.launcher.position") || "null");
+      const saved = JSON.parse(localStorage.getItem("strpg.launcher.position.v2") || "null");
       if (Number.isFinite(saved?.left) && Number.isFinite(saved?.top)) return saved;
     } catch {
     }
-    return { left: Math.max(12, (typeof window !== "undefined" ? window.innerWidth : 1e3) - 76), top: Math.max(12, (typeof window !== "undefined" ? window.innerHeight : 800) - 150) };
+    return launcherDefault();
   });
   const [tab, setTab] = (0, import_react22.useState)("dashboard");
+  const [panelLayout, setPanelLayout] = (0, import_react22.useState)({ mode: "full" });
   (0, import_react22.useEffect)(() => {
     try {
-      localStorage.setItem("strpg.launcher.position", JSON.stringify(launcherPosition));
+      localStorage.setItem("strpg.launcher.position.v2", JSON.stringify(launcherPosition));
     } catch {
     }
   }, [launcherPosition]);
@@ -156448,6 +156485,74 @@ function App() {
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+  (0, import_react22.useEffect)(() => {
+    if (!open) return void 0;
+    const compute = () => {
+      if (tab === "studio") {
+        setPanelLayout({ mode: "full" });
+        return;
+      }
+      const chat2 = document.getElementById("chat");
+      const rect = chat2?.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const gap = 8;
+      const margin = 8;
+      if (!rect || rect.width < 220) {
+        setPanelLayout({
+          mode: "overlay",
+          width: Math.min(760, Math.round(viewportWidth * 0.55)),
+          right: margin,
+          top: margin,
+          height: viewportHeight - margin * 2
+        });
+        return;
+      }
+      const rightSpace = viewportWidth - rect.right - gap - margin;
+      const leftSpace = rect.left - gap - margin;
+      const minWidth = 320;
+      if (rightSpace >= minWidth) {
+        setPanelLayout({
+          mode: "dock",
+          side: "right",
+          left: Math.round(rect.right + gap),
+          top: Math.round(Math.max(margin, rect.top)),
+          height: Math.round(Math.min(rect.height, viewportHeight - margin * 2)),
+          width: Math.round(Math.min(760, rightSpace))
+        });
+        return;
+      }
+      if (leftSpace >= minWidth) {
+        const width = Math.round(Math.min(760, leftSpace));
+        setPanelLayout({
+          mode: "dock",
+          side: "left",
+          left: Math.round(rect.left - gap - width),
+          top: Math.round(Math.max(margin, rect.top)),
+          height: Math.round(Math.min(rect.height, viewportHeight - margin * 2)),
+          width
+        });
+        return;
+      }
+      setPanelLayout({
+        mode: "overlay",
+        width: Math.min(700, Math.round(viewportWidth * 0.5)),
+        right: margin,
+        top: margin,
+        height: viewportHeight - margin * 2
+      });
+    };
+    compute();
+    window.addEventListener("resize", compute);
+    const chat = document.getElementById("chat");
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(compute) : null;
+    if (chat) observer?.observe(chat);
+    observer?.observe(document.body);
+    return () => {
+      window.removeEventListener("resize", compute);
+      observer?.disconnect();
+    };
+  }, [open, tab]);
   const [campaigns, setCampaigns] = (0, import_react22.useState)([]);
   const [campaignId, setCampaignId] = (0, import_react22.useState)(null);
   const [dashboard, setDashboard] = (0, import_react22.useState)(null);
@@ -156810,7 +156915,16 @@ function App() {
     loadCampaigns
   };
   return /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(import_jsx_runtime22.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Launcher, { position: launcherPosition, onPositionChange: setLauncherPosition, visible: !open && !dashboard, onClick: () => setOpen(true) }),
+    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
+      Launcher,
+      {
+        position: launcherPosition,
+        onPositionChange: setLauncherPosition,
+        onReset: () => setLauncherPosition(launcherDefault()),
+        visible: !open,
+        onClick: () => setOpen(true)
+      }
+    ),
     !open && dashboard && /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
       ChatHud,
       {
@@ -156824,7 +156938,7 @@ function App() {
       }
     ),
     dashboard?.pendingCombat && !combat.open && /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(ChatCombatAlert, { dashboard, onOpenCombat: openCombat }),
-    open && /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("div", { className: "strpg-root", children: /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)("div", { className: "strpg-shell", role: "dialog", "aria-label": "STRPG RPG side panel", children: [
+    open && /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("div", { className: panelRootClass(panelLayout, tab), style: panelRootStyle(panelLayout), children: /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)("div", { className: "strpg-shell", role: "dialog", "aria-label": "STRPG RPG side panel", children: [
       /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)("aside", { className: "strpg-sidebar", children: [
         /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)("div", { className: "strpg-brand", children: [
           /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("div", { className: "strpg-brand-mark", children: "S" }),

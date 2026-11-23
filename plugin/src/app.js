@@ -44,7 +44,7 @@ import { databaseInfo, readSetting, verifySchema, writeSetting } from './db.js';
 import { seedExampleProject } from './seed.js';
 import { idempotent, nowIso, parseJson, uuid, withTransaction } from './util.js';
 
-export const PLUGIN_VERSION = '1.8.0';
+export const PLUGIN_VERSION = '1.8.1';
 
 function wrap(handler) {
     return (req, res, next) => {
