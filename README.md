@@ -68,7 +68,21 @@ npm install --prefix <SillyTavern>/data/<user>/extensions/strpg
 ```
 
 ### Start
-```On first launch, STRPG seeds a playable example:
+
+```powershell
+node server.js
+# or Start.bat
+```
+
+Expected log lines:
+
+```text
+Initializing plugin from ...\plugins\strpg\index.js
+[STRPG] Database ready at ...\data\strpg\strpg.sqlite
+1 server plugin(s) are currently loaded.
+```
+
+On first launch, STRPG seeds a playable example:
 
 - World: **Emberfall Frontier**
 - Starting town: **Mistfall Town**
