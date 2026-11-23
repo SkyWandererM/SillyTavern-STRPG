@@ -18,7 +18,7 @@ import { ConflictError, NotFoundError, ValidationError } from './errors.js';
 export const RELATION_MIN = -100;
 export const RELATION_MAX = 100;
 export const RELATION_MAX_STEP = 2;
-export const CANDIDATE_KINDS = ['relation', 'narrative', 'flag', 'trade', 'recruit', 'tuition', 'recovery'];
+export const CANDIDATE_KINDS = ['relation', 'narrative', 'flag', 'trade', 'recruit', 'tuition', 'recovery', 'performance'];
 const SOCIAL_KINDS = new Set(['trade', 'recruit', 'tuition', 'recovery']);
 
 function campaignRow(db, campaignId) {
@@ -339,6 +339,20 @@ function applyNarrative(db, campaignId, candidate) {
     return { target: 'narrative_state', npcKey, keys: Object.keys(fields) };
 }
 
+function applyPerformance(campaignId, candidate) {
+    const payload = candidate.payload ?? {};
+    const text = String(payload.text ?? '').trim();
+    if (!text) throw new ValidationError('performance text is required');
+    return {
+        target: 'chat.performance',
+        npcKey: payload.npcKey ?? null,
+        npcName: payload.npcName ?? null,
+        text: text.slice(0, 4000),
+        lines: Array.isArray(payload.lines) ? payload.lines.slice(0, 12).map(String) : [],
+        campaignId,
+    };
+}
+
 function applyFlag(db, campaignId, candidate) {
     const flag = String(candidate.payload.flag ?? '').trim();
     if (!flag) throw new ValidationError('flag is required');
@@ -369,7 +383,8 @@ export async function approveCandidate(db, campaignId, candidateId, options = {}
         if (candidate.kind === 'relation') result = applyRelation(db, campaignId, candidate);
         else if (candidate.kind === 'narrative') result = applyNarrative(db, campaignId, candidate);
         else if (candidate.kind === 'flag') result = applyFlag(db, campaignId, candidate);
-        else if (social) result = social.applySocialCandidate(db, campaignId, candidate);
+        else if (candidate.kind === 'performance') result = applyPerformance(campaignId, candidate);
+        else if (social) result = social.applySocialCandidate(db, campaignId, candidate, options);
         else throw new ValidationError(`Unsupported candidate kind '${candidate.kind}'`);
 
         db.prepare("UPDATE bridge_candidates SET status = 'APPLIED', reviewed_at = ?, applied_at = ? WHERE id = ?")
@@ -383,7 +398,7 @@ export async function approveCandidate(db, campaignId, candidateId, options = {}
             candidateId,
             result.target,
             asJson({ before: candidate.payload.before ?? null }),
-            asJson({ after: result }),
+            asJson({ after: result, overrideReason: options.overrideReason ?? null }),
             String(options.appliedBy ?? 'server').slice(0, 80),
             nowIso(),
         );
@@ -418,4 +433,41 @@ export function bridgeStatus(db, campaignId) {
         relationBounds: { min: RELATION_MIN, max: RELATION_MAX, maxStep: RELATION_MAX_STEP },
         kinds: CANDIDATE_KINDS,
     };
+}
+
+/**
+ * Record a favour signal. Any pending service proposal whose non-numeric cost waits for
+ * this signal is released automatically (unless its cost sets `autoApprove: false`).
+ */
+export async function receiveSignal(db, campaignId, name, options = {}) {
+    campaignRow(db, campaignId);
+    const signal = String(name ?? '').trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/.test(signal)) throw new ValidationError('signal name is invalid');
+    db.prepare(`
+        INSERT INTO campaign_variables (campaign_id, var_key, value_json, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(campaign_id, var_key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+    `).run(campaignId, `signal:${signal}`, asJson({ receivedAt: nowIso(), note: String(options.note ?? '').slice(0, 300) }), nowIso());
+    insertEvent(db, campaignId, 'signal.received', { signal, note: String(options.note ?? '').slice(0, 300) }, `signal:${signal}:${nowIso()}`);
+
+    const pending = db.prepare("SELECT * FROM bridge_candidates WHERE campaign_id = ? AND status = 'PENDING'").all(campaignId);
+    const released = [];
+    const waiting = [];
+    const failed = [];
+    for (const row of pending) {
+        const candidate = candidateView(row);
+        const checks = candidate.payload?.requirements?.checks ?? [];
+        if (!checks.some((check) => check.kind === 'signal' && check.key === signal)) continue;
+        const cost = candidate.kind === 'tuition' ? candidate.payload?.tuition : candidate.payload?.cost;
+        if (cost?.autoApprove === false) {
+            waiting.push({ id: candidate.id, kind: candidate.kind });
+            continue;
+        }
+        try {
+            const result = await approveCandidate(db, campaignId, candidate.id, { appliedBy: `signal:${signal}` });
+            released.push({ id: candidate.id, kind: candidate.kind, applied: result.applied });
+        } catch (error) {
+            failed.push({ id: candidate.id, kind: candidate.kind, error: error.message });
+        }
+    }
+    return { signal, released, waiting, failed };
 }

@@ -95,7 +95,7 @@ describe('NPC social services (M2)', () => {
             const propose = await app.api.post(`${API}/tools/strpg_propose_recruit`).send({ campaignId: cid, npcKey: 'elder_mira' });
             expect(propose.status).toBe(200);
             const candidate = body(propose).result.candidate;
-            expect(candidate.payload.cost).toEqual({ gold: 60, items: [] });
+            expect(candidate.payload.cost).toMatchObject({ gold: 60, items: [] });
             expect(npcEntity(app, cid, 'elder_mira').data_json).not.toContain('"party":true');
 
             const approve = await app.api.post(`${API}/campaigns/${cid}/bridge/candidates/${candidate.id}/approve`).send({});
@@ -133,7 +133,7 @@ describe('NPC social services (M2)', () => {
             });
             expect(propose.status).toBe(200);
             const candidate = body(propose).result.candidate;
-            expect(candidate.payload.tuition).toEqual({ gold: 40, items: [] });
+            expect(candidate.payload.tuition).toMatchObject({ gold: 40, items: [] });
 
             const approve = await app.api.post(`${API}/campaigns/${cid}/bridge/candidates/${candidate.id}/approve`).send({});
             expect(approve.status).toBe(200);
@@ -209,6 +209,102 @@ describe('NPC social services (M2)', () => {
             expect(relationOf(app, cid, 'elder_mira')).toBe(before - 1);
             const queued = app.db.prepare("SELECT COUNT(*) AS count FROM bridge_candidates WHERE campaign_id = ? AND kind = 'narrative'").get(cid).count;
             expect(queued).toBe(1);
+        } finally {
+            await app.close();
+        }
+    });
+
+it('accepts a non-cash tuition receipt: signal approved only after the favour is sent', async () => {
+        const { app, cid } = await boot('Social Signal');
+        try {
+            const propose = await app.api.post(`${API}/tools/strpg_propose_tuition`).send({
+                campaignId: cid, npcKey: 'elder_mira', skillKey: 'fireball',
+            });
+            expect(propose.status).toBe(200);
+            const candidate = body(propose).result.candidate;
+            expect(candidate.payload.tuition).toMatchObject({ gold: 0, signal: 'mira_favor_paid' });
+            expect(candidate.payload.requirements.satisfied).toBe(false);
+
+            const blocked = await app.api.post(`${API}/campaigns/${cid}/bridge/candidates/${candidate.id}/approve`).send({});
+            expect(blocked.status).toBe(409);
+            expect(blocked.body.error.code).toBe('AWAITING_SIGNAL');
+
+            const signal = await app.api.post(`${API}/campaigns/${cid}/bridge/signals/mira_favor_paid`).send({ note: 'Recovered the sigil for her' });
+            expect(signal.status).toBe(200);
+            expect(body(signal).released).toHaveLength(1);
+            expect(body(signal).released[0].applied).toMatchObject({ target: 'skill.unlocked', skillKey: 'fireball' });
+
+            const known = app.db.prepare(`
+                SELECT COUNT(*) AS count FROM entity_skills es
+                JOIN skill_definitions s ON s.id = es.skill_definition_id
+                WHERE es.entity_id = ? AND s.skill_key = 'fireball'
+            `).get(playerRow(app, cid).id).count;
+            expect(known).toBe(1);
+            const consumed = app.db.prepare('SELECT value_json FROM campaign_variables WHERE campaign_id = ? AND var_key = ?')
+                .get(cid, 'signal:mira_favor_paid');
+            expect(consumed).toBeUndefined();
+        } finally {
+            await app.close();
+        }
+    });
+
+    it('allows a manual release with an audit reason when the receipt is missing', async () => {
+        const { app, cid } = await boot('Social Override');
+        try {
+            const propose = await app.api.post(`${API}/tools/strpg_propose_tuition`).send({
+                campaignId: cid, npcKey: 'elder_mira', skillKey: 'fireball',
+            });
+            const candidate = body(propose).result.candidate;
+            const approve = await app.api.post(`${API}/campaigns/${cid}/bridge/candidates/${candidate.id}/approve`)
+                .send({ overrideReason: 'The player promised to repay the favour later (table rule).' });
+            expect(approve.status).toBe(200);
+            expect(body(approve).applied).toMatchObject({ target: 'skill.unlocked', skillKey: 'fireball' });
+            const log = app.db.prepare("SELECT after_json FROM bridge_apply_log WHERE candidate_id = ?").get(candidate.id);
+            expect(log.after_json).toContain('overrideReason');
+        } finally {
+            await app.close();
+        }
+    });
+
+    it('queues a dialogue performance from a defeat event and exposes it for the chat', async () => {
+        const { app, cid } = await boot('Social Performance');
+        try {
+            const fired = runEventDefinitions(app.db, cid, {
+                trigger: 'combat_defeat', sceneKey: 'old_shrine', targetKey: 'goblin_patrol',
+            });
+            expect(fired).toHaveLength(1);
+            expect(fired[0].applied.some((entry) => entry.type === 'dialogue' && entry.candidateId)).toBe(true);
+            const performance = app.db.prepare("SELECT * FROM bridge_candidates WHERE campaign_id = ? AND kind = 'performance'").get(cid);
+            expect(performance).toBeTruthy();
+            const payload = JSON.parse(performance.payload_json);
+            expect(payload.npcName).toBe('Elder Mira');
+            expect(payload.text).toContain('shrine steps');
+
+            const approve = await app.api.post(`${API}/campaigns/${cid}/bridge/candidates/${performance.id}/approve`).send({});
+            expect(approve.status).toBe(200);
+            expect(body(approve).applied).toMatchObject({ target: 'chat.performance', npcKey: 'elder_mira' });
+            expect(body(approve).applied.text).toContain('shrine steps');
+        } finally {
+            await app.close();
+        }
+    });
+
+    it('sets favour signals from event actions', async () => {
+        const { app, cid } = await boot('Social Signal Event');
+        try {
+            const gameVersionId = app.db.prepare('SELECT game_version_id FROM campaigns WHERE id = ?').get(cid).game_version_id;
+            app.db.prepare(`
+                INSERT INTO event_definitions (id, game_version_id, event_key, name, scope, scene_key, trigger, target_key, priority, once, condition_json, actions_json, data_json)
+                VALUES (?, ?, 'favour_signal', 'Favour Signal', 'world', NULL, 'combat_defeat', NULL, 0, 1, '{}', ?, '{}')
+            `).run(
+                crypto.randomUUID(),
+                gameVersionId,
+                JSON.stringify([{ type: 'set_signal', key: 'test_favour' }]),
+            );
+            const fired = runEventDefinitions(app.db, cid, { trigger: 'combat_defeat' });
+            expect(fired.some((event) => event.applied.some((entry) => entry.type === 'signal' && entry.signal === 'test_favour'))).toBe(true);
+            const variable = app.db.prepare('SELECT value_json FROM campaign_variables WHERE campaign_id = ? AND var_key = ?').get(cid, 'signal:test_favour');
+            expect(variable).toBeTruthy();
         } finally {
             await app.close();
         }

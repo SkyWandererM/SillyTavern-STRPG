@@ -37,6 +37,25 @@ M2 的语义：**聊天里发起 → 服务端报价/校验 → 审核 → 事�
 尚未实现（M3）：scope 扫描器与高级 inbox、劳务抵账生成 quest（service-barter）、
 角色卡→NPC 导入、独立 NPC 聊天模式、`open_chat` 的前端自动拉起。
 
+## 0.2 M2.1 实施状态（v1.6.0 已完成）
+
+| 能力 | 落地位置 |
+|---|---|
+| 非扣除式代价（signal / flag / quest / manual / autoApprove） | 统一 `costSchema` + `social.requirementStatus` / `assertRequirements` |
+| 收到信号即放行 | `POST /bridge/signals/:name`、`receiveSignal()`、tool `strpg_receive_signal`、事件动作 `set_signal` |
+| 手动兜底 | 审批 `overrideReason` → 写入 `bridge_apply_log`；面板「Manual release」输入理由 |
+| 对话演出 | 事件动作 `dialogue` → `performance` 候选；批准后由前端 `addOneMessage` + `saveChat` 写进聊天 |
+| 示例 | Mira 以 `signal:mira_favor_paid` 教 `fireball`；`defeat_at_shrine` 增加 Mira 的战败对话演出 |
+| 测试 | 套件合计 61（social 13 例） |
+
+语义补充：
+
+- `signal` 是一次性凭证，结算后即删除，避免一次人情反复抵账。
+- 信号释放只会结算**该信号**关联、且金币/物品也付得起的候选；`autoApprove: false` 的候选
+  只标记满足，仍需手动批准。
+- 手动放行不能绕过金币/物品不足（那是硬失败），只绕过 signal/flag/quest 这类凭证。
+- `dialogue` 不会自动调用 LLM；它把已经写好的台词作为消息插入聊天（NPC 名或旁白）。
+
 ---
 
 目标：让 RPG 与聊天共用一套「记忆 + 关系 + 状态」，两个方向都能走：

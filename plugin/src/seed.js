@@ -94,6 +94,7 @@ const events = [
             { type: 'adjust_relation', npcKey: 'elder_mira', delta: -1 },
             { type: 'add_memory', npcKey: 'elder_mira', text: 'The player was carried back from the Old Ember Shrine after losing to its guardian.' },
             { type: 'notice', text: 'Elder Mira hears how you fell at the shrine. Her jaw tightens.' },
+            { type: 'dialogue', npcKey: 'elder_mira', npcName: 'Elder Mira', text: 'Elder Mira is waiting at the shrine steps when you limp back. "You went in without the sigil light," she says quietly. "Tell me what it showed you."' },
         ], tags: ['defeat', 'consequence'],
     },
 ];
@@ -124,6 +125,9 @@ const npcs = [
             cost: { gold: 60, items: [] },
             relationRequired: 0,
         },
+        teaching: [
+            { skillKey: 'fireball', tuition: { signal: 'mira_favor_paid' }, relationRequired: 0 },
+        ],
     },
     {
         key: 'herbalist_lina', name: 'Lina the Herbalist', title: 'Herbalist', locationKey: 'mistfall_town',

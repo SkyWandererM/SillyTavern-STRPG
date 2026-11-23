@@ -226,6 +226,24 @@ NPC asset, then use the tools or the endpoints:
 | `recovery` | `{enabled, hpThreshold, methods:[{key,restoreHp,restoreMp,relationDelta,cost}]}` |
 | `shop.haggle` | `{enabled, maxDiscount}` — server computes the price floor |
 
+Every `cost` / `tuition` may also carry non-cash receipts:
+
+| Field | Meaning |
+|---|---|
+| `signal` | released when `signal:<name>` was received; one-shot, consumed on apply |
+| `flag` | requires `flag:<name>` |
+| `questKey` | requires the quest `completed` / `turned_in` |
+| `manual` | no receipt required (approver judgement) |
+| `autoApprove` | `false` keeps a signal-released proposal pending |
+
+```http
+POST /campaigns/:id/bridge/signals/:name   { "note": "..." }
+```
+
+Signals are written as `signal:<name>` and release matching pending proposals. Approval can
+pass `{ "overrideReason": "..." }` for a reviewed manual release (audited in
+`bridge_apply_log`); insufficient gold/items remains a hard failure.
+
 | Method | Path | Description |
 |---|---|---|
 | POST | `/tools/strpg_get_social_options` | `{campaignId,npcKey}` |
@@ -238,8 +256,12 @@ Each returns a `bridge_candidates` row (`trade|recruit|tuition|recovery`). Appro
 gold/items, the party flag, the skill or NPC HP inside one transaction.
 
 Combat failure is a first-class event trigger: `combat_defeat` fires scene/world events with
-`targetKey = encounterKey` and advances the story with `combat.defeat`. New event actions:
-`adjust_relation`, `take_item`, `add_memory`, `open_chat`.
+`targetKey = encounterKey` and advances the story with `combat.defeat`. Event actions:
+`adjust_relation`, `take_item`, `add_memory`, `open_chat`, `dialogue`, `set_signal`.
+
+- `dialogue` queues a `performance` candidate (`{npcKey, npcName, text, lines[]}`); approval
+  returns `{target:"chat.performance", ...}` and the frontend inserts the line into the chat.
+- `set_signal` writes a `signal:<name>` receipt that releases proposals waiting on it.
 
 ## 8. Inventory, equipment, experience
 
@@ -414,6 +436,7 @@ Semantics:
 | `strpg_propose_recruit` | Party recruitment → candidate | No (candidate only) |
 | `strpg_propose_tuition` | Skill training → candidate | No (candidate only) |
 | `strpg_propose_recovery` | Help a low-state NPC → candidate | No (candidate only) |
+| `strpg_receive_signal` | Record a favour receipt and release matching proposals | Only via approved proposals |
 
 ```http
 POST /tools/strpg_get_status

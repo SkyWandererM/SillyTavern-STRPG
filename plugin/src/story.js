@@ -21,6 +21,22 @@ function queueMemoryCandidate(db, campaignId, text, npcKey = null) {
     return id;
 }
 
+function queuePerformanceCandidate(db, campaignId, payload) {
+    const text = String(payload.text ?? '').trim();
+    if (!text) return null;
+    const body = { npcKey: payload.npcKey ?? null, npcName: payload.npcName ?? null, text: text.slice(0, 4000), lines: payload.lines ?? [] };
+    const hash = hashObject({ kind: 'performance', payload: body });
+    const existing = db.prepare("SELECT id FROM bridge_candidates WHERE campaign_id = ? AND dedupe_hash = ? AND status = 'PENDING'")
+        .get(campaignId, hash);
+    if (existing) return existing.id;
+    const id = uuid('cand_');
+    db.prepare(`
+        INSERT INTO bridge_candidates (id, campaign_id, kind, source, payload_json, evidence_json, confidence, dedupe_hash, status, created_at, note)
+        VALUES (?, ?, 'performance', 'event', ?, '{}', NULL, ?, 'PENDING', ?, '')
+    `).run(id, campaignId, JSON.stringify(body), hash, nowIso());
+    return id;
+}
+
 export function getStory(db, campaignId) {
     const pkg = getCampaignPackage(db, campaignId);
     if (!pkg?.story) throw new NotFoundError('Campaign game package has no story', 'STORY_MISSING');
@@ -156,6 +172,24 @@ export function applyStoryActions(db, campaignId, actions = [], context = {}) {
                 applied.push({ type: 'memory', candidateId });
             } else if (action.type === 'open_chat') {
                 applied.push({ type: 'open_chat', npcKey: action.npcKey ?? action.key ?? null });
+            } else if (action.type === 'dialogue') {
+                const candidateId = queuePerformanceCandidate(db, campaignId, {
+                    npcKey: action.npcKey ?? null,
+                    npcName: action.npcName ?? null,
+                    text: action.text ?? action.value ?? '',
+                    lines: action.lines ?? [],
+                });
+                applied.push({ type: 'dialogue', candidateId });
+            } else if (action.type === 'set_signal') {
+                const signal = String(action.key ?? action.signal ?? action.flag ?? '').trim();
+                if (signal) {
+                    db.prepare(`
+                        INSERT INTO campaign_variables (campaign_id, var_key, value_json, updated_at) VALUES (?, ?, ?, ?)
+                        ON CONFLICT(campaign_id, var_key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+                    `).run(campaignId, `signal:${signal}`, JSON.stringify({ receivedAt: nowIso(), note: 'event' }), nowIso());
+                    insertEvent(db, campaignId, 'signal.received', { signal, source: 'event' }, `signal:${signal}:${nowIso()}`);
+                    applied.push({ type: 'signal', signal });
+                }
             }
         } catch (error) {
             applied.push({ type: 'error', action, message: error.message });

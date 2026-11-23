@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, downloadJson, getStContext } from '../api.js';
-import { Badge, Button, Empty, ErrorBox, Field, Modal, SectionTitle, Select, Textarea } from '../ui.jsx';
+import { Badge, Button, Empty, ErrorBox, Field, Input, Modal, SectionTitle, Select, Textarea } from '../ui.jsx';
+import { performChatLine } from '../chatBridge.js';
 import {
     isPushEnabled, loadBridge, pullTrackerNarrative, pushMirrorToTracker, setPushEnabled, trackerAvailable,
 } from '../trackerBridge.js';
@@ -15,6 +16,7 @@ export function IntegrationsPanel({ campaignId, notify }) {
     const [busy, setBusy] = useState(false);
     const [memoryOpen, setMemoryOpen] = useState(false);
     const [bridge, setBridge] = useState(null);
+    const [signalName, setSignalName] = useState('');
     const [candidates, setCandidates] = useState([]);
     const [pushOn, setPushOn] = useState(() => isPushEnabled());
     const [trackerReady, setTrackerReady] = useState(() => trackerAvailable());
@@ -79,18 +81,53 @@ export function IntegrationsPanel({ campaignId, notify }) {
         notify(next ? 'Tracker push enabled: the STRPG mirror line will be written when you press Push.' : 'Tracker push disabled.', 'info');
     };
 
-    const decideCandidate = async (candidate, action) => {
+    const decideCandidate = async (candidate, action, options = {}) => {
         if (!campaignId) return;
         setBusy(true);
         try {
-            const result = await api(`/campaigns/${campaignId}/bridge/candidates/${candidate.id}/${action}`, {
-                method: 'POST', body: action === 'reject' ? { note: 'Rejected from the bridge panel' } : {},
-            });
-            if (action === 'approve') {
+            const body = action === 'reject'
+                ? { note: options.note ?? 'Rejected from the bridge panel' }
+                : (options.overrideReason ? { overrideReason: options.overrideReason } : {});
+            const result = await api(`/campaigns/${campaignId}/bridge/candidates/${candidate.id}/${action}`, { method: 'POST', body });
+            if (action === 'approve' && result.applied?.target === 'chat.performance') {
+                try {
+                    await performChatLine(result.applied);
+                    notify('Performance written into the current chat.', 'success');
+                } catch (err) {
+                    notify(`Performance approved but not written: ${err.message}`, 'warning');
+                }
+            } else if (action === 'approve') {
                 notify(`Applied ${result.applied.target}${result.applied.npcKey ? ` (${result.applied.npcKey})` : ''}. Push the world book to publish the change.`, 'success');
             } else {
                 notify('Candidate rejected.', 'info');
             }
+            await refreshBridge();
+            globalThis.window?.dispatchEvent?.(new CustomEvent('strpg:bridge-changed'));
+        } catch (err) {
+            if (action === 'approve' && (err.code === 'AWAITING_SIGNAL' || err.code === 'INSUFFICIENT_PAYMENT')) {
+                const missing = (err.details?.missing ?? []).map((entry) => `${entry.kind}${entry.key ? `:${entry.key}` : ''}`).join(', ');
+                const reason = globalThis.prompt?.(`仍缺：${missing || err.message}\n输入手动放行理由（会写入审计）：`, '剧情中已用其他方式完成代价');
+                if (reason) {
+                    setBusy(false);
+                    await decideCandidate(candidate, 'approve', { overrideReason: reason });
+                    return;
+                }
+            }
+            notify(err.message, 'danger');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const sendSignal = async () => {
+        if (!campaignId || !signalName.trim()) return;
+        setBusy(true);
+        try {
+            const result = await api(`/campaigns/${campaignId}/bridge/signals/${encodeURIComponent(signalName.trim())}`, {
+                method: 'POST', body: { note: 'Sent from the bridge panel' },
+            });
+            notify(`Signal '${result.signal}' recorded. ${result.released.length} proposal(s) released${result.waiting.length ? `, ${result.waiting.length} waiting for manual approval` : ''}.`, result.released.length ? 'success' : 'info');
+            setSignalName('');
             await refreshBridge();
             globalThis.window?.dispatchEvent?.(new CustomEvent('strpg:bridge-changed'));
         } catch (err) {
@@ -276,31 +313,56 @@ export function IntegrationsPanel({ campaignId, notify }) {
                         <Button variant="ghost" onClick={() => downloadJson(`/campaigns/${campaignId}/bridge/mirror`, 'strpg-bridge-mirror.json').catch((err) => notify(err.message, 'danger'))}>Download Mirror</Button>
                     )}
                 </div>
+                <div className="strpg-row wrap">
+                    <Field label="Signal receipt" hint="e.g. mira_favor_paid — releases proposals whose cost waits for it">
+                        <Input value={signalName} onChange={(event) => setSignalName(event.target.value)} placeholder="mira_favor_paid" />
+                    </Field>
+                    <Button onClick={sendSignal} disabled={!campaignId || busy || !signalName.trim()}>Send Signal</Button>
+                </div>
                 <p className="strpg-muted">
-                    Relationship changes are capped at ±{bridge?.relationBounds?.maxStep ?? 2} per approval and stay inside {bridge?.relationBounds?.min ?? -100}…{bridge?.relationBounds?.max ?? 100}. Approving a candidate changes STRPG state immediately; publishing the world book makes it visible to the chat.
+                    Relationship changes are capped at ±{bridge?.relationBounds?.maxStep ?? 2} per approval and stay inside {bridge?.relationBounds?.min ?? -100}…{bridge?.relationBounds?.max ?? 100}. Non-cash costs (signal / flag / quest / manual) are checked at approval; if a receipt is missing you can still release the proposal with a written reason, which is recorded in the audit log. Approving a candidate changes STRPG state immediately; publishing the world book makes it visible to the chat.
                 </p>
                 {candidates.length ? (
                     <div className="strpg-form">
-                        {candidates.map((candidate) => (
+                        {candidates.map((candidate) => {
+                            const requirements = candidate.payload?.requirements;
+                            const unmet = Array.isArray(requirements?.checks) && requirements.checks.some((check) => !check.satisfied);
+                            return (
                             <div key={candidate.id} className="strpg-item-card">
                                 <div className="strpg-item-head">
-                                    <div className="strpg-item-icon">{candidate.kind === 'relation' ? '✦' : candidate.kind === 'narrative' ? '✎' : '⚑'}</div>
+                                    <div className="strpg-item-icon">{candidate.kind === 'relation' ? '✦' : candidate.kind === 'performance' ? '🎭' : candidate.kind === 'narrative' ? '✎' : '⚑'}</div>
                                     <div>
                                         <strong>{candidate.payload?.npcName ?? candidate.payload?.npcKey ?? 'World narrative'}</strong>
                                         <span>{candidate.kind} · {candidate.source} · {new Date(candidate.createdAt).toLocaleString()}</span>
                                     </div>
-                                    <Badge tone="info">{candidate.status}</Badge>
+                                    <Badge tone={unmet ? 'gold' : 'info'}>{unmet ? 'needs receipt' : candidate.status}</Badge>
                                 </div>
                                 <p className="strpg-muted">{describeCandidate(candidate)}</p>
+                                {unmet && (
+                                    <p className="strpg-muted">
+                                        Waiting for: {requirements.checks.filter((check) => !check.satisfied).map((check) => `${check.kind}:${check.key}`).join(', ')}
+                                    </p>
+                                )}
                                 {candidate.evidence && Object.keys(candidate.evidence).length > 0 && (
                                     <code>{JSON.stringify(candidate.evidence).slice(0, 240)}</code>
                                 )}
                                 <div className="strpg-row end">
                                     <Button variant="gold" onClick={() => decideCandidate(candidate, 'approve')} disabled={busy}>Approve</Button>
+                                    {unmet && (
+                                        <Button
+                                            variant="ghost"
+                                            onClick={() => {
+                                                const reason = globalThis.prompt?.('手动放行理由（写入审计）：', '剧情中已用其他方式完成代价');
+                                                if (reason) decideCandidate(candidate, 'approve', { overrideReason: reason });
+                                            }}
+                                            disabled={busy}
+                                        >Manual release</Button>
+                                    )}
                                     <Button onClick={() => decideCandidate(candidate, 'reject')} disabled={busy}>Reject</Button>
                                 </div>
                             </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 ) : <Empty title="No pending candidates" icon="◇" />}
             </section>
@@ -353,6 +415,10 @@ function describeCandidate(candidate) {
     if (candidate.kind === 'recovery') {
         const payload = candidate.payload ?? {};
         return `${payload.npcName ?? payload.npcKey}: ${payload.label ?? payload.method} — restore ${Math.round(Number(payload.restoreHp ?? 0) * 100)}% HP, relation +${payload.relationDelta ?? 0}${Number(payload.cost?.gold) ? `, ${payload.cost.gold} gold` : ''}`;
+    }
+    if (candidate.kind === 'performance') {
+        const payload = candidate.payload ?? {};
+        return `${payload.npcName ? `${payload.npcName}: ` : ''}${String(payload.text ?? '').slice(0, 240)}`;
     }
     if (candidate.kind === 'flag') return `Flag: ${candidate.payload?.flag ?? ''}`;
     return JSON.stringify(candidate.payload ?? {}).slice(0, 300);

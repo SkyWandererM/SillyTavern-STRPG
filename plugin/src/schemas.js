@@ -24,6 +24,21 @@ const numberSchema = z.number().finite();
 
 const statsSchema = z.record(z.union([z.number(), z.string()])).default({});
 
+/**
+ * Payment for an NPC service. Numeric parts are deducted; signal/flag/quest/manual are
+ * non-cash receipts checked at approval, so a favour ("help me with the crates") can be
+ * the tuition instead of gold or an item.
+ */
+const costSchema = z.object({
+    gold: z.number().int().min(0).default(0),
+    items: z.array(z.object({ itemKey: z.string(), quantity: z.number().int().min(1).max(10).default(1) })).default([]),
+    signal: z.string().trim().min(1).max(80).optional(),
+    flag: z.string().trim().min(1).max(80).optional(),
+    questKey: z.string().trim().min(1).max(120).optional(),
+    manual: z.boolean().default(false),
+    autoApprove: z.boolean().default(true),
+}).default({});
+
 const conditionSchema = z.object({
     all: z.array(z.any()).optional(),
     any: z.array(z.any()).optional(),
@@ -170,20 +185,14 @@ export const npcSchema = z.object({
     joinable: z.boolean().default(false),
     recruit: z.object({
         enabled: z.boolean().default(false),
-        cost: z.object({
-            gold: z.number().int().min(0).default(0),
-            items: z.array(z.object({ itemKey: z.string(), quantity: z.number().int().min(1).max(10).default(1) })).default([]),
-        }).default({ gold: 0, items: [] }),
+        cost: costSchema,
         relationRequired: z.number().default(0),
         condition: conditionSchema.optional(),
         maxParty: z.number().int().min(1).max(4).optional(),
     }).optional(),
     teaching: z.array(z.object({
         skillKey: z.string(),
-        tuition: z.object({
-            gold: z.number().int().min(0).default(0),
-            items: z.array(z.object({ itemKey: z.string(), quantity: z.number().int().min(1).max(10).default(1) })).default([]),
-        }).default({ gold: 0, items: [] }),
+        tuition: costSchema,
         relationRequired: z.number().default(0),
         condition: conditionSchema.optional(),
     })).default([]),
@@ -196,10 +205,7 @@ export const npcSchema = z.object({
             restoreHp: z.number().min(0).max(1).default(0.3),
             restoreMp: z.number().min(0).max(1).default(0.2),
             relationDelta: z.number().int().min(0).max(2).default(1),
-            cost: z.object({
-                gold: z.number().int().min(0).default(0),
-                items: z.array(z.object({ itemKey: z.string(), quantity: z.number().int().min(1).max(10).default(1) })).default([]),
-            }).optional(),
+            cost: costSchema.optional(),
         })).min(1),
     }).optional(),
     joinCondition: conditionSchema.optional(),

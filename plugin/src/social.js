@@ -59,15 +59,73 @@ export function normalizeCost(cost = {}) {
     const items = (Array.isArray(cost?.items) ? cost.items : [])
         .map((entry) => ({ itemKey: String(entry.itemKey ?? entry.key ?? ''), quantity: clamp(Math.round(Number(entry.quantity ?? 1)), 1, COST_ITEM_MAX) }))
         .filter((entry) => entry.itemKey);
-    return { gold, items };
+    return {
+        gold,
+        items,
+        signal: cost?.signal ? String(cost.signal).trim() : null,
+        flag: cost?.flag ? String(cost.flag).trim() : null,
+        questKey: cost?.questKey ? String(cost.questKey).trim() : null,
+        manual: cost?.manual === true,
+        autoApprove: cost?.autoApprove !== false,
+    };
 }
 
 function describeCost(cost) {
     const parts = [];
     if (cost.gold) parts.push(`${cost.gold} gold`);
     for (const item of cost.items) parts.push(`${item.itemKey} x${item.quantity}`);
+    if (cost.signal) parts.push(`signal:${cost.signal}`);
+    if (cost.flag) parts.push(`flag:${cost.flag}`);
+    if (cost.questKey) parts.push(`quest:${cost.questKey}`);
+    if (cost.manual) parts.push('manual confirmation');
     return parts.join(' + ') || 'nothing';
 }
+
+function questStatusOf(db, campaignId, questKey) {
+    return db.prepare('SELECT status FROM quest_instances WHERE campaign_id = ? AND quest_key = ?').get(campaignId, questKey)?.status ?? 'unavailable';
+}
+
+/**
+ * Non-numeric requirements (signal / flag / quest / manual). Signals are receipts the chat
+ * or an event can send when the player actually did the favour.
+ */
+export function requirementStatus(db, campaignId, cost) {
+    const normalized = normalizeCost(cost);
+    const checks = [];
+    if (normalized.signal) {
+        checks.push({
+            kind: 'signal', key: normalized.signal,
+            satisfied: Boolean(getCampaignVariable(db, campaignId, `signal:${normalized.signal}`)),
+        });
+    }
+    if (normalized.flag) {
+        checks.push({
+            kind: 'flag', key: normalized.flag,
+            satisfied: Boolean(getCampaignVariable(db, campaignId, `flag:${normalized.flag}`)),
+        });
+    }
+    if (normalized.questKey) {
+        checks.push({
+            kind: 'quest', key: normalized.questKey,
+            satisfied: ['completed', 'turned_in'].includes(questStatusOf(db, campaignId, normalized.questKey)),
+        });
+    }
+    if (normalized.manual) checks.push({ kind: 'manual', satisfied: true });
+    return { checks, satisfied: checks.every((check) => check.satisfied), missing: checks.filter((check) => !check.satisfied), cost: normalized };
+}
+
+function assertRequirements(db, campaignId, cost, options = {}) {
+    const status = requirementStatus(db, campaignId, cost);
+    if (status.satisfied) return status;
+    if (options.overrideReason) {
+        return { ...status, overridden: true, overrideReason: String(options.overrideReason).slice(0, 300) };
+    }
+    throw new ConflictError(`Waiting for ${status.missing.map((check) => `${check.kind}:${check.key}`).join(', ')}`, 'AWAITING_SIGNAL', {
+        missing: status.missing,
+        hint: 'Send the signal (POST /bridge/signals/:name), or approve with an override reason.',
+    });
+}
+
 
 export function affordability(db, campaignId, entityId, cost) {
     const entity = getPlayer(db, campaignId);
@@ -80,8 +138,9 @@ export function affordability(db, campaignId, entityId, cost) {
     return { ok: missing.length === 0, missing, gold: Number(entity.gold) };
 }
 
-function charge(db, campaignId, cost) {
+function charge(db, campaignId, cost, options = {}) {
     const player = getPlayer(db, campaignId);
+    const requirements = assertRequirements(db, campaignId, cost, options);
     const check = affordability(db, campaignId, player.id, cost);
     if (!check.ok) throw new ConflictError(`Not enough to pay ${describeCost(cost)}`, 'INSUFFICIENT_PAYMENT', check);
     if (cost.gold > 0) {
@@ -90,7 +149,11 @@ function charge(db, campaignId, cost) {
     for (const item of cost.items) {
         removeItem(db, campaignId, player.id, item.itemKey, item.quantity, { source: 'npc-service' });
     }
-    return { paid: cost, gold: Number(player.gold) - cost.gold };
+    // A favour signal is a one-shot receipt: consume it after the service is paid for.
+    if (cost.signal) {
+        db.prepare('DELETE FROM campaign_variables WHERE campaign_id = ? AND var_key = ?').run(campaignId, `signal:${cost.signal}`);
+    }
+    return { paid: cost, gold: Number(player.gold) - cost.gold, requirements };
 }
 
 function skillKnown(db, campaignId, entityId, skillKey) {
@@ -242,20 +305,20 @@ export function proposeRecruit(db, campaignId, input = {}) {
     const candidate = queueCandidate(db, campaignId, {
         kind: 'recruit',
         source: input.source ?? 'chat',
-        payload: { npcKey, npcName: definition.name, cost, relation, relationRequired },
+        payload: { npcKey, npcName: definition.name, cost, requirements: requirementStatus(db, campaignId, cost), relation, relationRequired },
         evidence: input.evidence ?? {},
         confidence: input.confidence,
     });
     return { cost, relation, ...candidate };
 }
 
-export function applyRecruit(db, campaignId, candidate) {
+export function applyRecruit(db, campaignId, candidate, options = {}) {
     const payload = candidate.payload ?? {};
     const definition = definitionOf(db, campaignId, payload.npcKey);
     if (isPartyMember(db, campaignId, payload.npcKey)) throw new ConflictError(`${definition.name} is already in the party`, 'ALREADY_IN_PARTY');
     if (partyCount(db, campaignId) >= PARTY_LIMIT) throw new ConflictError('Party is full', 'PARTY_FULL');
     const cost = normalizeCost(payload.cost ?? {});
-    const paid = charge(db, campaignId, cost);
+    const paid = charge(db, campaignId, cost, options);
     const npcEntity = getNpcByKey(db, campaignId, payload.npcKey);
     const runtime = parseJson(npcEntity.data_json, {});
     runtime.party = true;
@@ -264,7 +327,7 @@ export function applyRecruit(db, campaignId, candidate) {
     for (const skillKey of definition.combat?.skills ?? []) unlockSkill(db, npcEntity.id, skillKey, campaignId);
     setRelation(db, campaignId, payload.npcKey, clamp(relationOf(db, campaignId, payload.npcKey) + 1, -100, 100));
     insertEvent(db, campaignId, 'npc.recruited', { npcKey: payload.npcKey, cost, candidateId: candidate.id }, `bridge-recruit:${candidate.id}`);
-    return { target: 'party.join', npcKey: payload.npcKey, cost, paid };
+    return { target: 'party.join', npcKey: payload.npcKey, cost, paid, requirements: paid.requirements };
 }
 
 /* --------------------------------------------------------------- tuition */
@@ -295,25 +358,25 @@ export function proposeTuition(db, campaignId, input = {}) {
     const candidate = queueCandidate(db, campaignId, {
         kind: 'tuition',
         source: input.source ?? 'chat',
-        payload: { npcKey, npcName: definition.name, skillKey, skillName: skillName(db, campaignId, skillKey), tuition, relation },
+        payload: { npcKey, npcName: definition.name, skillKey, skillName: skillName(db, campaignId, skillKey), tuition, requirements: requirementStatus(db, campaignId, tuition), relation },
         evidence: input.evidence ?? {},
         confidence: input.confidence,
     });
     return { tuition, ...candidate };
 }
 
-export function applyTuition(db, campaignId, candidate) {
+export function applyTuition(db, campaignId, candidate, options = {}) {
     const payload = candidate.payload ?? {};
     const definition = definitionOf(db, campaignId, payload.npcKey);
     const offering = (definition.teaching ?? []).find((entry) => entry.skillKey === payload.skillKey);
     if (!offering) throw new ConflictError(`${definition.name} does not teach that skill`, 'NOT_TEACHING');
     const player = getPlayer(db, campaignId);
     if (skillKnown(db, campaignId, player.id, payload.skillKey)) throw new ConflictError('Skill already known', 'ALREADY_KNOWN');
-    const paid = charge(db, campaignId, normalizeCost(offering.tuition ?? {}));
+    const paid = charge(db, campaignId, normalizeCost(offering.tuition ?? {}), options);
     unlockSkill(db, player.id, payload.skillKey, campaignId);
     setRelation(db, campaignId, payload.npcKey, clamp(relationOf(db, campaignId, payload.npcKey) + 1, -100, 100));
     insertEvent(db, campaignId, 'npc.tuition', { npcKey: payload.npcKey, skillKey: payload.skillKey, cost: paid.paid, candidateId: candidate.id }, `bridge-tuition:${candidate.id}`);
-    return { target: 'skill.unlocked', npcKey: payload.npcKey, skillKey: payload.skillKey, tuition: paid.paid };
+    return { target: 'skill.unlocked', npcKey: payload.npcKey, skillKey: payload.skillKey, tuition: paid.paid, requirements: paid.requirements };
 }
 
 /* -------------------------------------------------------------- recovery */
@@ -355,6 +418,7 @@ export function proposeRecovery(db, campaignId, input = {}) {
             restoreMp: clamp(Number(method.restoreMp ?? 0.2), 0, 1),
             relationDelta: clamp(Math.round(Number(method.relationDelta ?? 1)), 0, 2),
             cost,
+            requirements: requirementStatus(db, campaignId, cost),
             hpRatio: Math.round(vitals.hpRatio * 100) / 100,
         },
         evidence: input.evidence ?? {},
@@ -363,7 +427,7 @@ export function proposeRecovery(db, campaignId, input = {}) {
     return { hpRatio: vitals.hpRatio, ...candidate };
 }
 
-export function applyRecovery(db, campaignId, candidate) {
+export function applyRecovery(db, campaignId, candidate, options = {}) {
     const payload = candidate.payload ?? {};
     const definition = definitionOf(db, campaignId, payload.npcKey);
     const policy = definition.recovery;
@@ -372,14 +436,14 @@ export function applyRecovery(db, campaignId, candidate) {
     if (vitals.hpRatio > clamp(Number(policy.hpThreshold ?? 0.4), 0, 1)) {
         throw new ConflictError(`${definition.name} does not need help right now`, 'RECOVERY_NOT_NEEDED');
     }
-    const paid = charge(db, campaignId, normalizeCost(payload.cost ?? {}));
+    const paid = charge(db, campaignId, normalizeCost(payload.cost ?? {}), options);
     const healHp = Math.round(vitals.maxHp * Number(payload.restoreHp ?? 0.3));
     const healMp = Math.round(vitals.maxMp * Number(payload.restoreMp ?? 0.2));
     const healed = healEntity(db, vitals.entity.id, healHp, healMp);
     const delta = clamp(Math.round(Number(payload.relationDelta ?? 1)), 0, 2);
     if (delta > 0) setRelation(db, campaignId, payload.npcKey, clamp(relationOf(db, campaignId, payload.npcKey) + delta, -100, 100));
     insertEvent(db, campaignId, 'npc.recovery', { npcKey: payload.npcKey, method: payload.method, healHp, healMp, relationDelta: delta, candidateId: candidate.id }, `bridge-recovery:${candidate.id}`);
-    return { target: 'npc.recovery', npcKey: payload.npcKey, method: payload.method, healHp, healMp, ...healed };
+    return { target: 'npc.recovery', npcKey: payload.npcKey, method: payload.method, healHp, healMp, requirements: paid.requirements, ...healed };
 }
 
 /* --------------------------------------------------------------- options */
@@ -442,11 +506,11 @@ export function socialOptions(db, campaignId, npcKey) {
 }
 
 /** Dispatch used by bridge.approveCandidate for the social candidate kinds. */
-export function applySocialCandidate(db, campaignId, candidate) {
+export function applySocialCandidate(db, campaignId, candidate, options = {}) {
     if (candidate.kind === 'trade') return applyTrade(db, campaignId, candidate);
-    if (candidate.kind === 'recruit') return applyRecruit(db, campaignId, candidate);
-    if (candidate.kind === 'tuition') return applyTuition(db, campaignId, candidate);
-    if (candidate.kind === 'recovery') return applyRecovery(db, campaignId, candidate);
+    if (candidate.kind === 'recruit') return applyRecruit(db, campaignId, candidate, options);
+    if (candidate.kind === 'tuition') return applyTuition(db, campaignId, candidate, options);
+    if (candidate.kind === 'recovery') return applyRecovery(db, campaignId, candidate, options);
     throw new ValidationError(`Unsupported social candidate kind '${candidate.kind}'`);
 }
 

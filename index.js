@@ -154834,6 +154834,30 @@ var import_react20 = __toESM(require_react(), 1);
 // frontend/src/components/IntegrationsPanel.jsx
 var import_react19 = __toESM(require_react(), 1);
 
+// frontend/src/chatBridge.js
+function chatApi() {
+  return globalThis.SillyTavern?.getContext?.() ?? null;
+}
+async function performChatLine(applied = {}) {
+  const ctx = chatApi();
+  if (!ctx?.chat) throw new Error("SillyTavern chat is not available.");
+  if (typeof ctx.addOneMessage !== "function") throw new Error("SillyTavern addOneMessage is not available.");
+  const lines = [applied.text, ...Array.isArray(applied.lines) ? applied.lines : []].map((line) => String(line ?? "").trim()).filter(Boolean);
+  if (!lines.length) throw new Error("The performance has no text.");
+  const message = {
+    name: applied.npcName || "Narrator",
+    is_user: false,
+    is_system: !applied.npcName,
+    send_date: (/* @__PURE__ */ new Date()).toISOString(),
+    mes: lines.join("\n"),
+    extra: { strpgPerformance: true, npcKey: applied.npcKey ?? null }
+  };
+  ctx.chat.push(message);
+  ctx.addOneMessage(message);
+  await ctx.saveChat?.();
+  return message;
+}
+
 // frontend/src/trackerBridge.js
 var PUSH_FLAG = "strpg.trackerPush";
 var NARRATIVE_WHITELIST = [
@@ -154942,6 +154966,7 @@ function IntegrationsPanel({ campaignId, notify }) {
   const [busy, setBusy] = (0, import_react19.useState)(false);
   const [memoryOpen, setMemoryOpen] = (0, import_react19.useState)(false);
   const [bridge, setBridge] = (0, import_react19.useState)(null);
+  const [signalName, setSignalName] = (0, import_react19.useState)("");
   const [candidates, setCandidates] = (0, import_react19.useState)([]);
   const [pushOn, setPushOn] = (0, import_react19.useState)(() => isPushEnabled());
   const [trackerReady, setTrackerReady] = (0, import_react19.useState)(() => trackerAvailable());
@@ -155004,19 +155029,52 @@ function IntegrationsPanel({ campaignId, notify }) {
     setPushEnabled(next);
     notify(next ? "Tracker push enabled: the STRPG mirror line will be written when you press Push." : "Tracker push disabled.", "info");
   };
-  const decideCandidate = async (candidate, action) => {
+  const decideCandidate = async (candidate, action, options = {}) => {
     if (!campaignId) return;
     setBusy(true);
     try {
-      const result = await api(`/campaigns/${campaignId}/bridge/candidates/${candidate.id}/${action}`, {
-        method: "POST",
-        body: action === "reject" ? { note: "Rejected from the bridge panel" } : {}
-      });
-      if (action === "approve") {
+      const body = action === "reject" ? { note: options.note ?? "Rejected from the bridge panel" } : options.overrideReason ? { overrideReason: options.overrideReason } : {};
+      const result = await api(`/campaigns/${campaignId}/bridge/candidates/${candidate.id}/${action}`, { method: "POST", body });
+      if (action === "approve" && result.applied?.target === "chat.performance") {
+        try {
+          await performChatLine(result.applied);
+          notify("Performance written into the current chat.", "success");
+        } catch (err) {
+          notify(`Performance approved but not written: ${err.message}`, "warning");
+        }
+      } else if (action === "approve") {
         notify(`Applied ${result.applied.target}${result.applied.npcKey ? ` (${result.applied.npcKey})` : ""}. Push the world book to publish the change.`, "success");
       } else {
         notify("Candidate rejected.", "info");
       }
+      await refreshBridge();
+      globalThis.window?.dispatchEvent?.(new CustomEvent("strpg:bridge-changed"));
+    } catch (err) {
+      if (action === "approve" && (err.code === "AWAITING_SIGNAL" || err.code === "INSUFFICIENT_PAYMENT")) {
+        const missing = (err.details?.missing ?? []).map((entry) => `${entry.kind}${entry.key ? `:${entry.key}` : ""}`).join(", ");
+        const reason = globalThis.prompt?.(`\u4ECD\u7F3A\uFF1A${missing || err.message}
+\u8F93\u5165\u624B\u52A8\u653E\u884C\u7406\u7531\uFF08\u4F1A\u5199\u5165\u5BA1\u8BA1\uFF09\uFF1A`, "\u5267\u60C5\u4E2D\u5DF2\u7528\u5176\u4ED6\u65B9\u5F0F\u5B8C\u6210\u4EE3\u4EF7");
+        if (reason) {
+          setBusy(false);
+          await decideCandidate(candidate, "approve", { overrideReason: reason });
+          return;
+        }
+      }
+      notify(err.message, "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const sendSignal = async () => {
+    if (!campaignId || !signalName.trim()) return;
+    setBusy(true);
+    try {
+      const result = await api(`/campaigns/${campaignId}/bridge/signals/${encodeURIComponent(signalName.trim())}`, {
+        method: "POST",
+        body: { note: "Sent from the bridge panel" }
+      });
+      notify(`Signal '${result.signal}' recorded. ${result.released.length} proposal(s) released${result.waiting.length ? `, ${result.waiting.length} waiting for manual approval` : ""}.`, result.released.length ? "success" : "info");
+      setSignalName("");
       await refreshBridge();
       globalThis.window?.dispatchEvent?.(new CustomEvent("strpg:bridge-changed"));
     } catch (err) {
@@ -155200,6 +155258,10 @@ function IntegrationsPanel({ campaignId, notify }) {
         /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { variant: "gold", onClick: pushWorldInfo, disabled: !campaignId || busy, children: "Publish World Book (incremental)" }),
         campaignId && /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { variant: "ghost", onClick: () => downloadJson(`/campaigns/${campaignId}/bridge/mirror`, "strpg-bridge-mirror.json").catch((err) => notify(err.message, "danger")), children: "Download Mirror" })
       ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: "strpg-row wrap", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Field, { label: "Signal receipt", hint: "e.g. mira_favor_paid \u2014 releases proposals whose cost waits for it", children: /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Input, { value: signalName, onChange: (event) => setSignalName(event.target.value), placeholder: "mira_favor_paid" }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { onClick: sendSignal, disabled: !campaignId || busy || !signalName.trim(), children: "Send Signal" })
+      ] }),
       /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("p", { className: "strpg-muted", children: [
         "Relationship changes are capped at \xB1",
         bridge?.relationBounds?.maxStep ?? 2,
@@ -155207,30 +155269,50 @@ function IntegrationsPanel({ campaignId, notify }) {
         bridge?.relationBounds?.min ?? -100,
         "\u2026",
         bridge?.relationBounds?.max ?? 100,
-        ". Approving a candidate changes STRPG state immediately; publishing the world book makes it visible to the chat."
+        ". Non-cash costs (signal / flag / quest / manual) are checked at approval; if a receipt is missing you can still release the proposal with a written reason, which is recorded in the audit log. Approving a candidate changes STRPG state immediately; publishing the world book makes it visible to the chat."
       ] }),
-      candidates.length ? /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("div", { className: "strpg-form", children: candidates.map((candidate) => /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: "strpg-item-card", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: "strpg-item-head", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("div", { className: "strpg-item-icon", children: candidate.kind === "relation" ? "\u2726" : candidate.kind === "narrative" ? "\u270E" : "\u2691" }),
-          /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("strong", { children: candidate.payload?.npcName ?? candidate.payload?.npcKey ?? "World narrative" }),
-            /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("span", { children: [
-              candidate.kind,
-              " \xB7 ",
-              candidate.source,
-              " \xB7 ",
-              new Date(candidate.createdAt).toLocaleString()
-            ] })
+      candidates.length ? /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("div", { className: "strpg-form", children: candidates.map((candidate) => {
+        const requirements = candidate.payload?.requirements;
+        const unmet = Array.isArray(requirements?.checks) && requirements.checks.some((check) => !check.satisfied);
+        return /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: "strpg-item-card", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: "strpg-item-head", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("div", { className: "strpg-item-icon", children: candidate.kind === "relation" ? "\u2726" : candidate.kind === "performance" ? "\u{1F3AD}" : candidate.kind === "narrative" ? "\u270E" : "\u2691" }),
+            /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("strong", { children: candidate.payload?.npcName ?? candidate.payload?.npcKey ?? "World narrative" }),
+              /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("span", { children: [
+                candidate.kind,
+                " \xB7 ",
+                candidate.source,
+                " \xB7 ",
+                new Date(candidate.createdAt).toLocaleString()
+              ] })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Badge, { tone: unmet ? "gold" : "info", children: unmet ? "needs receipt" : candidate.status })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Badge, { tone: "info", children: candidate.status })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("p", { className: "strpg-muted", children: describeCandidate(candidate) }),
-        candidate.evidence && Object.keys(candidate.evidence).length > 0 && /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("code", { children: JSON.stringify(candidate.evidence).slice(0, 240) }),
-        /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: "strpg-row end", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { variant: "gold", onClick: () => decideCandidate(candidate, "approve"), disabled: busy, children: "Approve" }),
-          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { onClick: () => decideCandidate(candidate, "reject"), disabled: busy, children: "Reject" })
-        ] })
-      ] }, candidate.id)) }) : /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Empty, { title: "No pending candidates", icon: "\u25C7" })
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("p", { className: "strpg-muted", children: describeCandidate(candidate) }),
+          unmet && /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("p", { className: "strpg-muted", children: [
+            "Waiting for: ",
+            requirements.checks.filter((check) => !check.satisfied).map((check) => `${check.kind}:${check.key}`).join(", ")
+          ] }),
+          candidate.evidence && Object.keys(candidate.evidence).length > 0 && /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("code", { children: JSON.stringify(candidate.evidence).slice(0, 240) }),
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: "strpg-row end", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { variant: "gold", onClick: () => decideCandidate(candidate, "approve"), disabled: busy, children: "Approve" }),
+            unmet && /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
+              Button,
+              {
+                variant: "ghost",
+                onClick: () => {
+                  const reason = globalThis.prompt?.("\u624B\u52A8\u653E\u884C\u7406\u7531\uFF08\u5199\u5165\u5BA1\u8BA1\uFF09\uFF1A", "\u5267\u60C5\u4E2D\u5DF2\u7528\u5176\u4ED6\u65B9\u5F0F\u5B8C\u6210\u4EE3\u4EF7");
+                  if (reason) decideCandidate(candidate, "approve", { overrideReason: reason });
+                },
+                disabled: busy,
+                children: "Manual release"
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { onClick: () => decideCandidate(candidate, "reject"), disabled: busy, children: "Reject" })
+          ] })
+        ] }, candidate.id);
+      }) }) : /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Empty, { title: "No pending candidates", icon: "\u25C7" })
     ] }),
     memoryOpen && /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
       Modal,
@@ -155278,6 +155360,10 @@ function describeCandidate(candidate) {
   if (candidate.kind === "recovery") {
     const payload = candidate.payload ?? {};
     return `${payload.npcName ?? payload.npcKey}: ${payload.label ?? payload.method} \u2014 restore ${Math.round(Number(payload.restoreHp ?? 0) * 100)}% HP, relation +${payload.relationDelta ?? 0}${Number(payload.cost?.gold) ? `, ${payload.cost.gold} gold` : ""}`;
+  }
+  if (candidate.kind === "performance") {
+    const payload = candidate.payload ?? {};
+    return `${payload.npcName ? `${payload.npcName}: ` : ""}${String(payload.text ?? "").slice(0, 240)}`;
   }
   if (candidate.kind === "flag") return `Flag: ${candidate.payload?.flag ?? ""}`;
   return JSON.stringify(candidate.payload ?? {}).slice(0, 300);
@@ -156112,7 +156198,8 @@ function App() {
         "strpg_propose_trade",
         "strpg_propose_recruit",
         "strpg_propose_tuition",
-        "strpg_propose_recovery"
+        "strpg_propose_recovery",
+        "strpg_receive_signal"
       ]);
       if (!allowed.has(call.tool)) {
         notify(`Disallowed tool call: ${call.tool}`, "warning");
@@ -156131,6 +156218,10 @@ function App() {
           setTab("combat");
         } else if (call.tool === "strpg_propose_relation") {
           notify("Relationship proposal queued for review. Open Integrations -> Bridge to approve it.", "gold");
+        } else if (call.tool === "strpg_receive_signal") {
+          const released = result.result?.released?.length ?? 0;
+          notify(`Favour signal recorded. ${released} proposal(s) released.`, "success");
+          await refresh(activeCampaign2, { silent: true });
         } else if (["strpg_propose_trade", "strpg_propose_recruit", "strpg_propose_tuition", "strpg_propose_recovery"].includes(call.tool)) {
           notify("NPC service proposal queued for review. Open Integrations -> Bridge to accept or decline.", "gold");
         } else {
@@ -156190,6 +156281,8 @@ function App() {
         '<strpg>{"tool":"strpg_propose_tuition","args":{"npcKey":"npc_key","skillKey":"skill_key"}}</strpg>',
         '<strpg>{"tool":"strpg_propose_recruit","args":{"npcKey":"npc_key"}}</strpg>',
         '<strpg>{"tool":"strpg_propose_recovery","args":{"npcKey":"npc_key"}}</strpg>',
+        "When a non-cash cost is actually fulfilled in the scene (a favour done, a promise kept), send the matching receipt:",
+        '<strpg>{"tool":"strpg_receive_signal","args":{"name":"favour_signal","note":"what the player did"}}</strpg>',
         "A proposal is not an action. The player must confirm; never claim the move or combat already happened before STRPG confirms it.",
         "Do not output SQL, code, or tool calls for direct stat changes."
       ].join("\n");
