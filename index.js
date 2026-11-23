@@ -156005,12 +156005,99 @@ function useStoredFlag(key, fallback) {
   };
   return [value, update];
 }
+function useDraggablePosition(storageKey) {
+  const ref = (0, import_react21.useRef)(null);
+  const drag = (0, import_react21.useRef)(null);
+  const suppressClick = (0, import_react21.useRef)(false);
+  const [position, setPosition] = (0, import_react21.useState)(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
+      if (Number.isFinite(saved?.left) && Number.isFinite(saved?.top)) return saved;
+    } catch {
+    }
+    return null;
+  });
+  (0, import_react21.useEffect)(() => {
+    if (!position) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(position));
+    } catch {
+    }
+  }, [position, storageKey]);
+  (0, import_react21.useEffect)(() => {
+    if (position) return;
+    const element = ref.current;
+    if (!element) return;
+    const rect = element.getBoundingClientRect();
+    setPosition({
+      left: Math.max(8, window.innerWidth - 10 - rect.width),
+      top: Math.max(8, window.innerHeight / 2 - rect.height / 2)
+    });
+  }, [position]);
+  (0, import_react21.useEffect)(() => {
+    const onResize = () => setPosition((current) => {
+      if (!current) return current;
+      const width = ref.current?.offsetWidth ?? 54;
+      const height = ref.current?.offsetHeight ?? 220;
+      return {
+        left: Math.min(current.left, Math.max(8, window.innerWidth - width - 8)),
+        top: Math.min(current.top, Math.max(8, window.innerHeight - height - 8))
+      };
+    });
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const onPointerDown = (event) => {
+    if (event.button !== 0) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    drag.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, left: rect.left, top: rect.top, width: rect.width, height: rect.height, moved: false };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+  const onPointerMove = (event) => {
+    const active = drag.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    const dx = event.clientX - active.startX;
+    const dy = event.clientY - active.startY;
+    if (!active.moved && Math.abs(dx) + Math.abs(dy) <= 3) return;
+    active.moved = true;
+    setPosition({
+      left: Math.min(Math.max(active.left + dx, 8), Math.max(8, window.innerWidth - active.width - 8)),
+      top: Math.min(Math.max(active.top + dy, 8), Math.max(8, window.innerHeight - active.height - 8))
+    });
+  };
+  const finishDrag = () => {
+    if (!drag.current) return;
+    suppressClick.current = drag.current.moved;
+    drag.current = null;
+  };
+  const onClickCapture = (event) => {
+    if (!suppressClick.current) return;
+    suppressClick.current = false;
+    event.stopPropagation();
+    event.preventDefault();
+  };
+  const reset = () => setPosition(null);
+  const style = position ? { left: `${position.left}px`, top: `${position.top}px`, right: "auto", transform: "none" } : void 0;
+  return {
+    ref,
+    style,
+    handlers: {
+      onPointerDown,
+      onPointerMove,
+      onPointerUp: finishDrag,
+      onPointerCancel: finishDrag,
+      onClickCapture,
+      onDoubleClick: reset
+    }
+  };
+}
 function hpPercent(player) {
   return Math.max(0, Math.min(100, Number(player?.hp ?? 0) / Math.max(1, Number(player?.stats?.maxHp ?? 1)) * 100));
 }
 function ChatHud({ dashboard, campaignId, onOpen, onCombat, onRefresh, notify, setTab }) {
   const [collapsed, setCollapsed] = useStoredFlag("strpg.hud.collapsed", false);
   const [busy, setBusy] = (0, import_react21.useState)(false);
+  const railDrag = useDraggablePosition("strpg.hud.rail.position.v1");
   const campaign = dashboard?.campaign;
   const player = dashboard?.player;
   const location = dashboard?.location;
@@ -156065,32 +156152,43 @@ function ChatHud({ dashboard, campaignId, onOpen, onCombat, onRefresh, notify, s
   };
   if (collapsed) {
     const percent = hpPercent(player);
-    return /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)("aside", { className: "strpg-hud-rail", "aria-label": "STRPG status rail", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("button", { type: "button", className: "strpg-hud-rail-mark", onClick: () => setCollapsed(false), title: "Expand STRPG status", children: "S" }),
-      /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)("button", { type: "button", className: "strpg-hud-rail-level", onClick: () => setCollapsed(false), title: `${player.name} \xB7 Lv.${player.level}`, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("strong", { children: player.level }),
-        /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("span", { children: "LV" })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)("button", { type: "button", className: "strpg-hud-rail-hp", onClick: () => setCollapsed(false), title: `HP ${player.hp}/${player.stats.maxHp}`, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("div", { className: "strpg-hud-rail-track", children: /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("i", { style: { height: `${percent}%` } }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)("span", { children: [
-          Math.round(percent),
-          "%"
-        ] })
-      ] }),
-      combat && /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("button", { type: "button", className: `strpg-hud-rail-combat ${combat.status}`, onClick: () => onCombat?.(combat.id), title: "Combat pending", children: "\u2694" }),
-      quests.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)("button", { type: "button", className: "strpg-hud-rail-quest", onClick: () => {
-        setTab?.("quests");
-        onOpen?.();
-      }, title: `${quests.length} active quests`, children: [
-        "!",
-        /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("span", { children: quests.length })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("button", { type: "button", className: "strpg-hud-rail-open", onClick: () => {
-        setTab?.("dashboard");
-        onOpen?.();
-      }, title: "Open the full game panel", children: "\u2922" })
-    ] });
+    return /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(
+      "aside",
+      {
+        ref: railDrag.ref,
+        className: "strpg-hud-rail",
+        style: railDrag.style,
+        "aria-label": "STRPG status rail",
+        title: "Drag to move \xB7 double-click to reset",
+        ...railDrag.handlers,
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("button", { type: "button", className: "strpg-hud-rail-mark", onClick: () => setCollapsed(false), title: "Expand STRPG status", children: "S" }),
+          /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)("button", { type: "button", className: "strpg-hud-rail-level", onClick: () => setCollapsed(false), title: `${player.name} \xB7 Lv.${player.level}`, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("strong", { children: player.level }),
+            /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("span", { children: "LV" })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)("button", { type: "button", className: "strpg-hud-rail-hp", onClick: () => setCollapsed(false), title: `HP ${player.hp}/${player.stats.maxHp}`, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("div", { className: "strpg-hud-rail-track", children: /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("i", { style: { height: `${percent}%` } }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)("span", { children: [
+              Math.round(percent),
+              "%"
+            ] })
+          ] }),
+          combat && /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("button", { type: "button", className: `strpg-hud-rail-combat ${combat.status}`, onClick: () => onCombat?.(combat.id), title: "Combat pending", children: "\u2694" }),
+          quests.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)("button", { type: "button", className: "strpg-hud-rail-quest", onClick: () => {
+            setTab?.("quests");
+            onOpen?.();
+          }, title: `${quests.length} active quests`, children: [
+            "!",
+            /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("span", { children: quests.length })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("button", { type: "button", className: "strpg-hud-rail-open", onClick: () => {
+            setTab?.("dashboard");
+            onOpen?.();
+          }, title: "Open the full game panel", children: "\u2922" })
+        ]
+      }
+    );
   }
   return /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)("aside", { className: "strpg-hud", "aria-label": "STRPG game status", children: [
     /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)("header", { className: "strpg-hud-head", children: [
@@ -156303,60 +156401,6 @@ function useToast() {
   }, []);
   return { toast, notify };
 }
-function Launcher({ onClick, position, onPositionChange, onReset, visible = true }) {
-  const drag = (0, import_react22.useRef)(null);
-  const suppressClick = (0, import_react22.useRef)(false);
-  const clamp = (value, min, max) => Math.min(Math.max(value, min), Math.max(min, max));
-  if (!visible) return null;
-  const onPointerDown = (event) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    drag.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, left: position.left, top: position.top, moved: false };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-  };
-  const onPointerMove = (event) => {
-    const active = drag.current;
-    if (!active || active.pointerId !== event.pointerId) return;
-    const dx = event.clientX - active.startX;
-    const dy = event.clientY - active.startY;
-    if (Math.abs(dx) + Math.abs(dy) > 3) active.moved = true;
-    if (!active.moved) return;
-    const width = 54;
-    const height = 54;
-    onPositionChange({
-      left: clamp(active.left + dx, 8, window.innerWidth - width - 8),
-      top: clamp(active.top + dy, 8, window.innerHeight - height - 8)
-    });
-  };
-  const onPointerUp = (event) => {
-    if (!drag.current || drag.current.pointerId !== event.pointerId) return;
-    suppressClick.current = drag.current.moved;
-    drag.current = null;
-  };
-  return /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
-    "button",
-    {
-      type: "button",
-      className: "strpg-launcher",
-      style: { left: `${position.left}px`, top: `${position.top}px`, touchAction: "none" },
-      onPointerDown,
-      onPointerMove,
-      onPointerUp,
-      onPointerCancel: onPointerUp,
-      onClick: () => {
-        if (suppressClick.current) {
-          suppressClick.current = false;
-          return;
-        }
-        onClick();
-      },
-      onDoubleClick: () => onReset?.(),
-      title: "Open STRPG \xB7 drag to move \xB7 double-click to reset position",
-      "aria-label": "Open STRPG",
-      children: /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("span", { className: "strpg-launcher-mark", children: "S" })
-    }
-  );
-}
 function panelRootStyle(layout) {
   if (layout.mode === "dock") {
     return {
@@ -156457,34 +156501,8 @@ function ProposalModal({ proposal, onClose, onConfirm, busy }) {
 }
 function App() {
   const [open, setOpen] = (0, import_react22.useState)(false);
-  const launcherDefault = () => ({
-    left: 16,
-    top: Math.max(72, (typeof window !== "undefined" ? window.innerHeight : 800) - 120)
-  });
-  const [launcherPosition, setLauncherPosition] = (0, import_react22.useState)(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("strpg.launcher.position.v2") || "null");
-      if (Number.isFinite(saved?.left) && Number.isFinite(saved?.top)) return saved;
-    } catch {
-    }
-    return launcherDefault();
-  });
   const [tab, setTab] = (0, import_react22.useState)("dashboard");
   const [panelLayout, setPanelLayout] = (0, import_react22.useState)({ mode: "full" });
-  (0, import_react22.useEffect)(() => {
-    try {
-      localStorage.setItem("strpg.launcher.position.v2", JSON.stringify(launcherPosition));
-    } catch {
-    }
-  }, [launcherPosition]);
-  (0, import_react22.useEffect)(() => {
-    const onResize = () => setLauncherPosition((current) => ({
-      left: Math.min(current.left, Math.max(8, window.innerWidth - 62)),
-      top: Math.min(current.top, Math.max(8, window.innerHeight - 62))
-    }));
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
   (0, import_react22.useEffect)(() => {
     if (!open) return void 0;
     const compute = () => {
@@ -156915,16 +156933,6 @@ function App() {
     loadCampaigns
   };
   return /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(import_jsx_runtime22.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
-      Launcher,
-      {
-        position: launcherPosition,
-        onPositionChange: setLauncherPosition,
-        onReset: () => setLauncherPosition(launcherDefault()),
-        visible: !open,
-        onClick: () => setOpen(true)
-      }
-    ),
     !open && dashboard && /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
       ChatHud,
       {

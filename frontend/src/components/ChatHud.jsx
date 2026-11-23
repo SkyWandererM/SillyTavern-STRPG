@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api, randomIdempotencyKey } from '../api.js';
 import { Badge, Button, ProgressDots } from '../ui.jsx';
 
@@ -18,6 +18,95 @@ function useStoredFlag(key, fallback) {
     return [value, update];
 }
 
+function useDraggablePosition(storageKey) {
+    const ref = useRef(null);
+    const drag = useRef(null);
+    const suppressClick = useRef(false);
+    const [position, setPosition] = useState(() => {
+        try {
+            const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
+            if (Number.isFinite(saved?.left) && Number.isFinite(saved?.top)) return saved;
+        } catch { /* storage is optional */ }
+        return null;
+    });
+
+    useEffect(() => {
+        if (!position) return;
+        try { localStorage.setItem(storageKey, JSON.stringify(position)); } catch { /* storage is optional */ }
+    }, [position, storageKey]);
+
+    useEffect(() => {
+        if (position) return;
+        const element = ref.current;
+        if (!element) return;
+        const rect = element.getBoundingClientRect();
+        setPosition({
+            left: Math.max(8, window.innerWidth - 10 - rect.width),
+            top: Math.max(8, window.innerHeight / 2 - rect.height / 2),
+        });
+    }, [position]);
+
+    useEffect(() => {
+        const onResize = () => setPosition((current) => {
+            if (!current) return current;
+            const width = ref.current?.offsetWidth ?? 54;
+            const height = ref.current?.offsetHeight ?? 220;
+            return {
+                left: Math.min(current.left, Math.max(8, window.innerWidth - width - 8)),
+                top: Math.min(current.top, Math.max(8, window.innerHeight - height - 8)),
+            };
+        });
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, []);
+
+    const onPointerDown = (event) => {
+        if (event.button !== 0) return;
+        const rect = event.currentTarget.getBoundingClientRect();
+        drag.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, left: rect.left, top: rect.top, width: rect.width, height: rect.height, moved: false };
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+    };
+    const onPointerMove = (event) => {
+        const active = drag.current;
+        if (!active || active.pointerId !== event.pointerId) return;
+        const dx = event.clientX - active.startX;
+        const dy = event.clientY - active.startY;
+        if (!active.moved && Math.abs(dx) + Math.abs(dy) <= 3) return;
+        active.moved = true;
+        setPosition({
+            left: Math.min(Math.max(active.left + dx, 8), Math.max(8, window.innerWidth - active.width - 8)),
+            top: Math.min(Math.max(active.top + dy, 8), Math.max(8, window.innerHeight - active.height - 8)),
+        });
+    };
+    const finishDrag = () => {
+        if (!drag.current) return;
+        suppressClick.current = drag.current.moved;
+        drag.current = null;
+    };
+    const onClickCapture = (event) => {
+        if (!suppressClick.current) return;
+        suppressClick.current = false;
+        event.stopPropagation();
+        event.preventDefault();
+    };
+    const reset = () => setPosition(null);
+    const style = position
+        ? { left: `${position.left}px`, top: `${position.top}px`, right: 'auto', transform: 'none' }
+        : undefined;
+    return {
+        ref,
+        style,
+        handlers: {
+            onPointerDown,
+            onPointerMove,
+            onPointerUp: finishDrag,
+            onPointerCancel: finishDrag,
+            onClickCapture,
+            onDoubleClick: reset,
+        },
+    };
+}
+
 function hpPercent(player) {
     return Math.max(0, Math.min(100, (Number(player?.hp ?? 0) / Math.max(1, Number(player?.stats?.maxHp ?? 1))) * 100));
 }
@@ -30,6 +119,7 @@ function hpPercent(player) {
 export function ChatHud({ dashboard, campaignId, onOpen, onCombat, onRefresh, notify, setTab }) {
     const [collapsed, setCollapsed] = useStoredFlag('strpg.hud.collapsed', false);
     const [busy, setBusy] = useState(false);
+    const railDrag = useDraggablePosition('strpg.hud.rail.position.v1');
     const campaign = dashboard?.campaign;
     const player = dashboard?.player;
     const location = dashboard?.location;
@@ -89,7 +179,14 @@ export function ChatHud({ dashboard, campaignId, onOpen, onCombat, onRefresh, no
     if (collapsed) {
         const percent = hpPercent(player);
         return (
-            <aside className="strpg-hud-rail" aria-label="STRPG status rail">
+            <aside
+                ref={railDrag.ref}
+                className="strpg-hud-rail"
+                style={railDrag.style}
+                aria-label="STRPG status rail"
+                title="Drag to move · double-click to reset"
+                {...railDrag.handlers}
+            >
                 <button type="button" className="strpg-hud-rail-mark" onClick={() => setCollapsed(false)} title="Expand STRPG status">
                     S
                 </button>

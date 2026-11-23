@@ -72,54 +72,6 @@ function useToast() {
     return { toast, notify };
 }
 
-function Launcher({ onClick, position, onPositionChange, onReset, visible = true }) {
-    const drag = useRef(null);
-    const suppressClick = useRef(false);
-    const clamp = (value, min, max) => Math.min(Math.max(value, min), Math.max(min, max));
-    if (!visible) return null;
-    const onPointerDown = (event) => {
-        if (event.button !== 0) return;
-        event.preventDefault();
-        drag.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, left: position.left, top: position.top, moved: false };
-        event.currentTarget.setPointerCapture?.(event.pointerId);
-    };
-    const onPointerMove = (event) => {
-        const active = drag.current;
-        if (!active || active.pointerId !== event.pointerId) return;
-        const dx = event.clientX - active.startX;
-        const dy = event.clientY - active.startY;
-        if (Math.abs(dx) + Math.abs(dy) > 3) active.moved = true;
-        if (!active.moved) return;
-        const width = 54;
-        const height = 54;
-        onPositionChange({
-            left: clamp(active.left + dx, 8, window.innerWidth - width - 8),
-            top: clamp(active.top + dy, 8, window.innerHeight - height - 8),
-        });
-    };
-    const onPointerUp = (event) => {
-        if (!drag.current || drag.current.pointerId !== event.pointerId) return;
-        suppressClick.current = drag.current.moved;
-        drag.current = null;
-    };
-    return (
-        <button
-            type="button"
-            className="strpg-launcher"
-            style={{ left: `${position.left}px`, top: `${position.top}px`, touchAction: 'none' }}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={onPointerUp}
-            onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } onClick(); }}
-            onDoubleClick={() => onReset?.()}
-            title="Open STRPG · drag to move · double-click to reset position"
-            aria-label="Open STRPG"
-        >
-            <span className="strpg-launcher-mark">S</span>
-        </button>
-    );
-}
 
 function panelRootStyle(layout) {
     if (layout.mode === 'dock') {
@@ -269,30 +221,8 @@ function ProposalModal({ proposal, onClose, onConfirm, busy }) {
 
 export function App() {
     const [open, setOpen] = useState(false);
-    const launcherDefault = () => ({
-        left: 16,
-        top: Math.max(72, (typeof window !== 'undefined' ? window.innerHeight : 800) - 120),
-    });
-    const [launcherPosition, setLauncherPosition] = useState(() => {
-        try {
-            const saved = JSON.parse(localStorage.getItem('strpg.launcher.position.v2') || 'null');
-            if (Number.isFinite(saved?.left) && Number.isFinite(saved?.top)) return saved;
-        } catch { /* ignore unavailable storage */ }
-        return launcherDefault();
-    });
     const [tab, setTab] = useState('dashboard');
     const [panelLayout, setPanelLayout] = useState({ mode: 'full' });
-    useEffect(() => {
-        try { localStorage.setItem('strpg.launcher.position.v2', JSON.stringify(launcherPosition)); } catch { /* storage is optional */ }
-    }, [launcherPosition]);
-    useEffect(() => {
-        const onResize = () => setLauncherPosition((current) => ({
-            left: Math.min(current.left, Math.max(8, window.innerWidth - 62)),
-            top: Math.min(current.top, Math.max(8, window.innerHeight - 62)),
-        }));
-        window.addEventListener('resize', onResize);
-        return () => window.removeEventListener('resize', onResize);
-    }, []);
     useEffect(() => {
         if (!open) return undefined;
         const compute = () => {
@@ -732,13 +662,6 @@ export function App() {
 
     return (
         <>
-            <Launcher
-                position={launcherPosition}
-                onPositionChange={setLauncherPosition}
-                onReset={() => setLauncherPosition(launcherDefault())}
-                visible={!open}
-                onClick={() => setOpen(true)}
-            />
             {!open && dashboard && (
                 <ChatHud
                     dashboard={dashboard}
@@ -840,4 +763,3 @@ export function App() {
         </>
     );
 }
-
