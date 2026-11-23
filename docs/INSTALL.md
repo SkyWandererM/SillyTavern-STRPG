@@ -60,11 +60,11 @@ SillyTavern → Extensions → **Install extension** with:
 https://github.com/SkyWandererM/SillyTavern-STRPG
 ```
 
-That clones the package into `data/<user>/extensions/STRPG` (folder name follows the repository). Then deploy the plugin:
+That clones the package into `data/<user>/extensions/SillyTavern-STRPG` — SillyTavern derives the folder name from the repository URL, and any folder name works as long as it contains `manifest.json`. Then deploy the plugin:
 
 ```powershell
-# from the SillyTavern root
-Copy-Item data/<user>/extensions/STRPG/plugin plugins/strpg -Recurse
+# from the SillyTavern root; use the folder name you actually installed
+Copy-Item data/<user>/extensions/SillyTavern-STRPG/plugin plugins/strpg -Recurse
 npm install --prefix plugins/strpg
 ```
 

@@ -58,8 +58,8 @@ The extension belongs in the per-user extensions folder, next to `Extension-Dice
 <SillyTavern>/data/strpg/strpg.sqlite           database, created on first start
 ```
 
-1. Install the extension folder — SillyTavern → Extensions → **Install extension** with `https://github.com/SkyWandererM/SillyTavern-STRPG`, or clone it manually: `git clone https://github.com/SkyWandererM/SillyTavern-STRPG <SillyTavern>/data/<user>/extensions/strpg`.
-2. Deploy the server plugin: copy `plugin/` to `<SillyTavern>/plugins/strpg`. The `install.ps1` in the ZIP release does this automatically.
+1. Install the extension folder — SillyTavern → Extensions → **Install extension** with `https://github.com/SkyWandererM/SillyTavern-STRPG`, or clone it manually: `git clone https://github.com/SkyWandererM/SillyTavern-STRPG <SillyTavern>/data/<user>/extensions/strpg`. SillyTavern names the folder after the repository (`SillyTavern-STRPG`) when it installs from the URL; a manual clone can use `strpg`. Either folder name works — SillyTavern reads that folder's `manifest.json`.
+2. Deploy the server plugin: copy the package's `plugin/` folder to `<SillyTavern>/plugins/strpg`. The `install.ps1` in the ZIP release does this automatically.
 3. Install dependencies:
 
 ```powershell
