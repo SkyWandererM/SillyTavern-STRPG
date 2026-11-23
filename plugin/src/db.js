@@ -128,6 +128,26 @@ export const MIGRATIONS = [
             `);
         },
     },
+{
+        version: 6,
+        name: 'character-bindings',
+        up(db) {
+            db.exec(`
+                CREATE TABLE IF NOT EXISTS character_bindings (
+                    id TEXT PRIMARY KEY,
+                    campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+                    npc_key TEXT,
+                    st_avatar TEXT NOT NULL,
+                    st_character_name TEXT NOT NULL DEFAULT '',
+                    direction TEXT NOT NULL DEFAULT 'rpg2chat',
+                    created_at TEXT NOT NULL,
+                    last_seen_at TEXT,
+                    UNIQUE (campaign_id, st_avatar)
+                );
+                CREATE INDEX IF NOT EXISTS idx_bindings_avatar ON character_bindings(st_avatar);
+            `);
+        },
+    },
 ];
 
 export function ensureDir(directory) {

@@ -67,7 +67,10 @@ export function CombatArena({ campaignId, combatId, onClose, notify, onFinished 
             });
             setMode('main');
             if (label) notify(label, 'info');
-            if (['victory', 'defeat', 'fled'].includes(data.status)) await onFinished?.();
+            if (['victory', 'defeat', 'fled'].includes(data.status)) {
+                void handleOpenChatActions(campaignId, data.result?.worldEvents, notify);
+                await onFinished?.();
+            }
         } catch (err) {
             notify(err.message, 'danger');
         } finally {

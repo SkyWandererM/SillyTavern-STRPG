@@ -16,6 +16,8 @@ import { Story } from './components/Story.jsx';
 import { Studio } from './components/Studio.jsx';
 import { Settings } from './components/Settings.jsx';
 import { ChatHud } from './components/ChatHud.jsx';
+import { maybeAutoScan } from './scopeScheduler.js';
+import { currentCharacter } from './characterBridge.js';
 
 class ViewErrorBoundary extends React.Component {
     constructor(props) {
@@ -274,6 +276,22 @@ export function App() {
     });
     const chatKey = chatIdentity.key;
     const chatName = chatIdentity.name;
+    const [boundNpcLine, setBoundNpcLine] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        const character = (() => {
+            try { return currentCharacter(); } catch { return null; }
+        })();
+        if (!activeCampaign || !character?.avatar) {
+            setBoundNpcLine('');
+            return () => {};
+        }
+        api(`/campaigns/${activeCampaign}/bindings/context?avatar=${encodeURIComponent(character.avatar)}`)
+            .then((result) => { if (!cancelled) setBoundNpcLine(result?.context?.line ?? ''); })
+            .catch(() => { if (!cancelled) setBoundNpcLine(''); });
+        return () => { cancelled = true; };
+    }, [activeCampaign, chatKey]);
 
     const updateChatIdentity = useCallback(() => {
         try {
@@ -389,6 +407,8 @@ export function App() {
             if (!activeCampaign) return;
             const message = ctx.chat?.[messageId];
             if (!message?.mes) return;
+            // Auto-scan only queues review candidates; failures never block the chat.
+            void maybeAutoScan(activeCampaign, notify);
             // Keep the in-chat status rail in sync with narration even when the
             // message contains no STRPG tool call (quests, travel, combat logs).
             void refresh(activeCampaign, { silent: true });
@@ -490,6 +510,7 @@ export function App() {
                 `Player: ${dashboard.player.name} Lv.${dashboard.player.level} | HP ${dashboard.player.hp}/${dashboard.player.stats.maxHp} | MP ${dashboard.player.mp}/${dashboard.player.stats.maxMp} | XP ${dashboard.player.xp}/${dashboard.player.xpToNext} | Gold ${dashboard.player.gold}`,
                 `Active quests: ${dashboard.activeQuests.map((quest) => `${quest.name} [${quest.status}]`).join(' | ') || 'none'}`,
                 `Story node: ${dashboard.story?.current?.title ?? 'none'}${dashboard.story?.ending ? ` | ENDING: ${dashboard.story.ending.title}` : ''}`,
+                boundNpcLine ? `[BOUND NPC] ${boundNpcLine}` : '',
                 dashboard.pendingCombat ? `PENDING COMBAT: ${dashboard.pendingCombat.id} (${dashboard.pendingCombat.status})` : 'PENDING COMBAT: none',
                 'Rules: STRPG is the only authority for HP, MP, EXP, gold, items, skills, quests and combat. Never invent or change those numbers. Narrate only results returned by STRPG.',
                 'If the player explicitly asks to move or a hostile encounter is clearly triggered, you may append exactly one proposal block:',
@@ -512,7 +533,7 @@ export function App() {
         } catch {
             // SillyTavern context may not be ready; harmless.
         }
-    }, [dashboard]);
+    }, [dashboard, boundNpcLine]);
 
     const bindCurrentChat = useCallback(async () => {
         if (!campaignId || !chatKey) return;

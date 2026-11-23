@@ -8,8 +8,8 @@ import { previewBook, pushLorebook } from './lorebook.js';
  * book instead of replacing the whole file, so user-written entries survive.
  */
 
-export function buildMemoryBook(db, campaignId) {
-    const preview = previewBook(db, campaignId);
+export function buildMemoryBook(db, campaignId, options = {}) {
+    const preview = previewBook(db, campaignId, options);
     return { name: preview.name, data: { entries: preview.entries }, stats: preview.stats };
 }
 

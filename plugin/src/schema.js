@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 export const SCHEMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -512,6 +512,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_bridge_candidates_dedupe
 CREATE INDEX IF NOT EXISTS idx_bridge_candidates_queue
     ON bridge_candidates(campaign_id, status, created_at);
 
+CREATE TABLE IF NOT EXISTS character_bindings (
+    id TEXT PRIMARY KEY,
+    campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+    npc_key TEXT,
+    st_avatar TEXT NOT NULL,
+    st_character_name TEXT NOT NULL DEFAULT '',
+    direction TEXT NOT NULL DEFAULT 'rpg2chat',
+    created_at TEXT NOT NULL,
+    last_seen_at TEXT,
+    UNIQUE (campaign_id, st_avatar)
+);
+
 CREATE TABLE IF NOT EXISTS memory_scopes (
     id TEXT PRIMARY KEY,
     campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
@@ -560,7 +572,7 @@ export const REQUIRED_TABLES = [
     'location_discoveries', 'encounter_spawns', 'event_definitions', 'story_nodes', 'story_edges', 'quest_definitions', 'quest_nodes',
     'quest_edges', 'quest_instances', 'combat_sessions', 'combat_participants', 'combat_actions',
     'game_events', 'save_snapshots', 'game_projects', 'content_assets', 'content_versions',
-    'content_reviews', 'tracker_sync_log', 'bridge_candidates', 'bridge_apply_log', 'memory_scopes',
+    'content_reviews', 'tracker_sync_log', 'bridge_candidates', 'bridge_apply_log', 'memory_scopes', 'character_bindings',
 ];
 
 

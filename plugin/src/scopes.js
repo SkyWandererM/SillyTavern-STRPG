@@ -70,7 +70,7 @@ function normalizeConfig(db, campaignId, config = {}) {
         extract: { kind },
         apply: { targets: Array.isArray(config?.apply?.targets) ? config.apply.targets.map(String).slice(0, 6) : ['narrative_state', 'lorebook'] },
         review: 'required',
-        schedule: 'manual',
+        schedule: /^every_n_messages:\d{1,3}$/.test(String(config?.schedule ?? '')) ? String(config.schedule) : 'manual',
     };
 }
 

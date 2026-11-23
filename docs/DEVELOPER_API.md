@@ -240,6 +240,24 @@ NPC asset, then use the tools or the endpoints:
 
 Kinds: `narrative`, `relation`, `flag`, `performance`. Items are validated and queued as
 bridge candidates carrying `scopeKey`; a manual `note` is only valid for narrative scopes.
+Scopes accept `schedule: "manual"` or `"every_n_messages:N"`; the extension runs due scopes
+while the SillyTavern tab is open.
+
+### Character bindings and card import (M3.1 / M4)
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/campaigns/:id/npcs/import-card` | Card fields → DRAFT NPC asset (`tavern.avatar`, `sourceCard`) |
+| GET | `/campaigns/:id/bindings` | Bindings + directions |
+| POST | `/campaigns/:id/bindings` | `{npcKey\|null, stAvatar, stCharacterName?, direction?}` upsert by avatar |
+| DELETE | `/campaigns/:id/bindings/:bindingId` | Remove a binding |
+| GET | `/campaigns/:id/bindings/resolve?avatar=\|npcKey=` | Resolve one identity |
+| GET | `/campaigns/:id/bindings/context?avatar=` | Compact `[BOUND NPC]` prompt line |
+| GET | `/campaigns/:id/memory-book?npcKey=` | Per-NPC world book preview |
+| POST | `/campaigns/:id/memory-book/push` | `{npcKey}` publishes the per-NPC book |
+
+`npcKey: null` binds the character as the player persona. Imported cards stay DRAFT and must
+go through validate → review → publish → build → Campaign Upgrade.
 
 Every `cost` / `tuition` may also carry non-cash receipts:
 

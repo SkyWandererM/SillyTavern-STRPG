@@ -342,11 +342,27 @@ export function mergeEntries(existing = {}, generated = {}, options = {}) {
     return { entries: kept, stats };
 }
 
-export function previewBook(db, campaignId) {
+function npcFilteredEntries(db, campaignId, entries, npcKey) {
+    if (!npcKey) return entries;
+    const pkg = getCampaignPackage(db, campaignId);
+    const npc = (pkg.npcs ?? []).find((entry) => entry.key === npcKey);
+    if (!npc) throw new Error(`Unknown NPC '${npcKey}'`);
+    const allowed = new Set([`npc:${npcKey}`, `debt:${npcKey}`, 'player', 'current', 'rules']);
+    return Object.fromEntries(Object.entries(entries).filter(([, entry]) => allowed.has(ownerIdOf(entry))));
+}
+
+function bookNameWithNpc(db, campaignId, campaignName, npcKey) {
+    if (!npcKey) return bookNameFor(campaignName);
+    const pkg = getCampaignPackage(db, campaignId);
+    const npc = (pkg.npcs ?? []).find((entry) => entry.key === npcKey);
+    return `${bookNameFor(campaignName)} - ${npc?.name ?? npcKey}`;
+}
+
+export function previewBook(db, campaignId, options = {}) {
     const campaign = campaignRow(db, campaignId);
-    const generated = buildEntries(db, campaignId);
+    const generated = npcFilteredEntries(db, campaignId, buildEntries(db, campaignId), options.npcKey);
     return {
-        name: bookNameFor(campaign.name),
+        name: bookNameWithNpc(db, campaignId, campaign.name, options.npcKey),
         entries: generated,
         stats: { generated: Object.keys(generated).length },
         generatedAt: nowIso(),
@@ -394,8 +410,8 @@ async function writeWorldBook(request, name, data) {
  */
 export async function pushLorebook(db, campaignId, request, options = {}) {
     const campaign = campaignRow(db, campaignId);
-    const name = bookNameFor(campaign.name);
-    const generated = buildEntries(db, campaignId);
+    const name = bookNameWithNpc(db, campaignId, campaign.name, options.npcKey);
+    const generated = npcFilteredEntries(db, campaignId, buildEntries(db, campaignId), options.npcKey);
     let existing = {};
     let warning = null;
     if (options.replace === true) {

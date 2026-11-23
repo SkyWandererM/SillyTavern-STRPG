@@ -75,6 +75,22 @@ M3 的取舍：
   前端（只有它能看到聊天），后续可在扩展里加 N 条消息触发。
 - **抵账是一等公民**：批准时先交货 + 接任务，任务交还时结算人情，全程可审计、可手动放行。
 
+## 0.4 M3.1 / M4 实施状态（v1.8.0 已完成）
+
+| 能力 | 落地位置 |
+|---|---|
+| 角色卡 → NPC（草稿） | `POST /campaigns/:id/npcs/import-card` → `importCardAsNpc`（`tavern.avatar` + `sourceCard`） |
+| 角色绑定（NPC / 玩家人格） | `character_bindings`（schema v6）+ `bindings.js`：CRUD / resolve / context |
+| 绑定 NPC 的聊天上下文 | `STRPG_CONTEXT` 追加 `[BOUND NPC]`（关系、最近互动、债务） |
+| `open_chat` 真正切换 | 移动/战斗结束后 `handleOpenChatActions` → `selectCharacterById` |
+| NPC 专属世界书 | `memory-book?npcKey=` / `push {npcKey}` → `STRPG - <campaign> - <NPC>` |
+| 自动扫描 | Scope `schedule: every_n_messages:N` + 前端调度器（按收到的消息计数） |
+| 面板 | Character Bindings 区：开关自动扫描、绑定当前角色、导入当前卡、打开聊天、解绑 |
+| 测试 | `tests/bindings.test.js` 6 例，套件合计 76 |
+
+边界：自动扫描只在 ST 页面打开时运行（只有前端能读聊天）；「Open chat」打开该角色已有
+聊天而非新建；绑定是战役级的。
+
 ---
 
 目标：让 RPG 与聊天共用一套「记忆 + 关系 + 状态」，两个方向都能走：

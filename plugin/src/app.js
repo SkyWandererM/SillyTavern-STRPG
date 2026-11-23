@@ -32,18 +32,19 @@ import {
     exportMapRegions, importMapRegions, integrationStatus, memoryBooksPayload, trackerState, trackerSync,
 } from './integrations.js';
 import { createBackup, deleteBackup, listBackups, restoreBackup } from './backups.js';
-import { importNpcToTavern } from './tavern.js';
+import { importCardAsNpc, importNpcToTavern } from './tavern.js';
 import { buildMemoryBook, pushMemoryBook } from './memorybook.js';
 import {
     approveCandidate, bridgeStatus, listCandidates, pullTrackerNarrative, receiveSignal, rejectCandidate, trackerMirror,
 } from './bridge.js';
 import { socialOptions } from './social.js';
+import { bindingContext, deleteBinding, listBindings, resolveBinding, upsertBinding } from './bindings.js';
 import { deleteScope, ensureStarterScopes, ingestScope, ingestScopeRaw, listScopes, scopePrompt, upsertScope } from './scopes.js';
 import { databaseInfo, readSetting, verifySchema, writeSetting } from './db.js';
 import { seedExampleProject } from './seed.js';
 import { idempotent, nowIso, parseJson, uuid, withTransaction } from './util.js';
 
-export const PLUGIN_VERSION = '1.7.0';
+export const PLUGIN_VERSION = '1.8.0';
 
 function wrap(handler) {
     return (req, res, next) => {
@@ -207,12 +208,13 @@ export function createRouter(db) {
     router.post('/campaigns', wrap((req, res) => send(res, createCampaign(db, req.body), 201)));
     router.get('/campaigns/:id', wrap((req, res) => send(res, fullCampaignView(db, req.params.id))));
     router.patch('/campaigns/:id', wrap((req, res) => send(res, updateCampaign(db, req.params.id, req.body))));
-    router.get('/campaigns/:id/memory-book', wrap((req, res) => send(res, buildMemoryBook(db, req.params.id))));
+    router.get('/campaigns/:id/memory-book', wrap((req, res) => send(res, buildMemoryBook(db, req.params.id, { npcKey: req.query.npcKey }))));
     router.post('/campaigns/:id/memory-book/push', wrap(async (req, res) => {
         send(res, await pushMemoryBook(db, req.params.id, req, {
             dryRun: req.body?.dryRun === true,
             replace: req.body?.replace === true,
             adoptLegacy: req.body?.adoptLegacy !== false,
+            npcKey: req.body?.npcKey ?? null,
         }));
     }));
     router.get('/campaigns/:id/dashboard', wrap((req, res) => send(res, getDashboard(db, req.params.id))));
@@ -421,6 +423,16 @@ export function createRouter(db) {
     // Chat <-> RPG bridge (state mirror, reviewed memory candidates, incremental lorebook)
     router.get('/campaigns/:id/bridge', wrap((req, res) => send(res, bridgeStatus(db, req.params.id))));
     router.get('/campaigns/:id/social/:npcKey', wrap((req, res) => send(res, socialOptions(db, req.params.id, req.params.npcKey))));
+
+// Character bindings (M4): chat avatar <-> NPC identity
+    router.get('/campaigns/:id/bindings', wrap((req, res) => send(res, listBindings(db, req.params.id))));
+    router.post('/campaigns/:id/bindings', wrap((req, res) => send(res, upsertBinding(db, req.params.id, req.body ?? {}), 201)));
+    router.delete('/campaigns/:id/bindings/:bindingId', wrap((req, res) => send(res, deleteBinding(db, req.params.id, req.params.bindingId))));
+    router.get('/campaigns/:id/bindings/resolve', wrap((req, res) => send(res, resolveBinding(db, req.params.id, req.query))));
+    router.get('/campaigns/:id/bindings/context', wrap((req, res) => {
+        send(res, { context: bindingContext(db, req.params.id, String(req.query.avatar ?? '')) });
+    }));
+    router.post('/campaigns/:id/npcs/import-card', wrap((req, res) => send(res, importCardAsNpc(db, req.params.id, req.body ?? {}), 201)));
 
     // Memory scopes (M3): server-built extraction prompts + reviewed ingest
     router.get('/campaigns/:id/scopes', wrap((req, res) => send(res, listScopes(db, req.params.id))));

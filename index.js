@@ -147792,6 +147792,74 @@ function CreateCampaignModal({ open, games, form, setForm, onClose, onCreate, bu
 // frontend/src/components/WorldMap.jsx
 var import_react5 = __toESM(require_react(), 1);
 
+// frontend/src/characterBridge.js
+function currentCharacter() {
+  const ctx = getStContext();
+  const index = Number(ctx.characterId);
+  const characters = Array.isArray(ctx.characters) ? ctx.characters : [];
+  const character = Number.isInteger(index) && index >= 0 ? characters[index] : null;
+  return character ? { index, avatar: character.avatar, name: character.name } : null;
+}
+async function bindCurrentCharacter(campaignId, npcKey, direction = "chat2rpg") {
+  const character = currentCharacter();
+  if (!character) throw new Error("No SillyTavern character is selected.");
+  return api(`/campaigns/${campaignId}/bindings`, {
+    method: "POST",
+    body: { npcKey: npcKey || null, stAvatar: character.avatar, stCharacterName: character.name, direction }
+  });
+}
+async function removeBinding(campaignId, bindingId) {
+  return api(`/campaigns/${campaignId}/bindings/${bindingId}`, { method: "DELETE" });
+}
+async function openCharacterByAvatar(avatar) {
+  const ctx = getStContext();
+  const characters = Array.isArray(ctx.characters) ? ctx.characters : [];
+  const index = characters.findIndex((character) => character?.avatar === avatar);
+  if (index === -1) throw new Error("That character is not available in SillyTavern.");
+  if (typeof ctx.selectCharacterById !== "function") throw new Error("SillyTavern does not expose character selection.");
+  await ctx.selectCharacterById(index);
+  return { index, avatar };
+}
+async function importCurrentCardAsNpc(campaignId) {
+  const character = currentCharacter();
+  if (!character) throw new Error("No SillyTavern character is selected.");
+  const ctx = getStContext();
+  const index = Number(ctx.characterId);
+  const card = (Array.isArray(ctx.characters) ? ctx.characters[index] : null) ?? {};
+  return api(`/campaigns/${campaignId}/npcs/import-card`, {
+    method: "POST",
+    body: {
+      name: card.name ?? character.name,
+      description: card.description ?? "",
+      personality: card.personality ?? "",
+      scenario: card.scenario ?? "",
+      firstMessage: card.first_mes ?? card.firstMessage ?? "",
+      avatar: character.avatar,
+      creator: card.creator ?? "",
+      tags: Array.isArray(card.tags) ? card.tags : []
+    }
+  });
+}
+async function handleOpenChatActions2(campaignId, worldEvents = [], notify = null) {
+  const opens = (worldEvents ?? []).flatMap((event) => event?.applied ?? []).filter((applied) => applied.type === "open_chat" && applied.npcKey);
+  const opened = [];
+  for (const action of opens) {
+    try {
+      const resolved = await api(`/campaigns/${campaignId}/bindings/resolve?npcKey=${encodeURIComponent(action.npcKey)}`);
+      if (resolved.found && resolved.binding?.stAvatar) {
+        await openCharacterByAvatar(resolved.binding.stAvatar);
+        notify?.(`Opened ${resolved.binding.stCharacterName || action.npcKey}'s chat.`, "success");
+        opened.push(action.npcKey);
+      } else {
+        notify?.(`${action.npcKey} wants to talk, but no character is bound to it yet.`, "info");
+      }
+    } catch (error) {
+      notify?.(`Could not open ${action.npcKey}'s chat: ${error.message}`, "warning");
+    }
+  }
+  return opened;
+}
+
 // frontend/src/components/PhaserMap.jsx
 var import_react4 = __toESM(require_react(), 1);
 var import_phaser = __toESM(require_phaser(), 1);
@@ -148033,6 +148101,7 @@ function WorldMap({ campaignId, revision, notify, onMutated, openCombat }) {
       const suffix = eventNames.length ? ` Event: ${eventNames.join(", ")}.` : "";
       const noticeText = notices.length ? ` ${notices.join(" ")}` : "";
       notify(`Arrived at ${location.name}.${suffix}${noticeText}`, "success");
+      void handleOpenChatActions2(campaignId, result.worldEvents, notify);
       setSelectedId(null);
       await load();
       await onMutated?.();
@@ -148697,7 +148766,10 @@ function CombatArena({ campaignId, combatId, onClose, notify, onFinished }) {
       });
       setMode("main");
       if (label) notify(label, "info");
-      if (["victory", "defeat", "fled"].includes(data.status)) await onFinished?.();
+      if (["victory", "defeat", "fled"].includes(data.status)) {
+        void handleOpenChatActions(campaignId, data.result?.worldEvents, notify);
+        await onFinished?.();
+      }
     } catch (err) {
       notify(err.message, "danger");
     } finally {
@@ -154902,6 +154974,70 @@ var SCOPE_MANUAL_HINTS = {
   performance: '{"items":[{"npcKey":"elder_mira","text":"She studies you for a long moment."}]}'
 };
 
+// frontend/src/scopeScheduler.js
+var STORAGE_KEY = "strpg.scopeAuto";
+var counter = 0;
+function getAutoSettings() {
+  try {
+    const parsed = JSON.parse(globalThis.localStorage?.getItem(STORAGE_KEY) ?? "null");
+    return {
+      enabled: Boolean(parsed?.enabled),
+      everyN: Math.max(1, Math.min(100, Number(parsed?.everyN) || 8))
+    };
+  } catch {
+    return { enabled: false, everyN: 8 };
+  }
+}
+function setAutoSettings(settings) {
+  const next = {
+    enabled: Boolean(settings?.enabled),
+    everyN: Math.max(1, Math.min(100, Number(settings?.everyN) || 8))
+  };
+  try {
+    globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(next));
+  } catch {
+  }
+  return next;
+}
+async function applyAutoSchedule(campaignId, settings) {
+  const { scopes } = await api(`/campaigns/${campaignId}/scopes`);
+  const schedule = settings.enabled ? `every_n_messages:${settings.everyN}` : "manual";
+  for (const scope of scopes) {
+    await api(`/campaigns/${campaignId}/scopes`, {
+      method: "POST",
+      body: { key: scope.key, name: scope.name, enabled: scope.enabled, config: { ...scope.config, schedule } }
+    });
+  }
+  return { updated: scopes.length, schedule };
+}
+async function maybeAutoScan(campaignId, notify = null) {
+  const settings = getAutoSettings();
+  if (!settings.enabled || !campaignId) return null;
+  counter += 1;
+  if (counter < settings.everyN) return null;
+  counter = 0;
+  try {
+    const { scopes } = await api(`/campaigns/${campaignId}/scopes`);
+    const due = (scopes ?? []).filter((scope) => scope.enabled && /^every_n_messages:\d+$/.test(scope.config?.schedule ?? ""));
+    if (!due.length) return null;
+    const results = [];
+    for (const scope of due) {
+      try {
+        const run = await scanScope(campaignId, scope);
+        results.push({ key: scope.key, ...run });
+      } catch (error) {
+        notify?.(`Auto-scan '${scope.key}' failed: ${error.message}`, "warning");
+      }
+    }
+    const queued = results.reduce((sum, run) => sum + (Number(run.queued) || 0), 0);
+    if (queued) notify?.(`Auto-scan queued ${queued} candidate(s) for review.`, "success");
+    return results;
+  } catch (error) {
+    notify?.(`Auto-scan failed: ${error.message}`, "warning");
+    return null;
+  }
+}
+
 // frontend/src/trackerBridge.js
 var PUSH_FLAG = "strpg.trackerPush";
 var NARRATIVE_WHITELIST = [
@@ -155012,6 +155148,9 @@ function IntegrationsPanel({ campaignId, notify }) {
   const [bridge, setBridge] = (0, import_react19.useState)(null);
   const [signalName, setSignalName] = (0, import_react19.useState)("");
   const [scopes, setScopes] = (0, import_react19.useState)([]);
+  const [bindings, setBindings] = (0, import_react19.useState)([]);
+  const [npcKeyInput, setNpcKeyInput] = (0, import_react19.useState)("");
+  const [autoSettings, setAuto] = (0, import_react19.useState)(() => getAutoSettings());
   const [candidates, setCandidates] = (0, import_react19.useState)([]);
   const [pushOn, setPushOn] = (0, import_react19.useState)(() => isPushEnabled());
   const [trackerReady, setTrackerReady] = (0, import_react19.useState)(() => trackerAvailable());
@@ -155039,6 +155178,7 @@ function IntegrationsPanel({ campaignId, notify }) {
       setBridge(data.status);
       setCandidates(data.candidates.candidates ?? []);
       setScopes(scopeData.scopes ?? []);
+      setBindings(bindingData.bindings ?? []);
       setTrackerReady(trackerAvailable());
     } catch (err) {
       notify(`Bridge status failed: ${err.message}`, "danger");
@@ -155088,6 +155228,82 @@ ${hint}`, "");
     try {
       const result = await manualIngest(campaignId, scope, text);
       notify(`Manual ingest: ${result.queued} queued${result.duplicates ? `, ${result.duplicates} duplicate` : ""}${result.skipped?.length ? `, ${result.skipped.length} skipped` : ""}.`, result.queued ? "success" : "warning");
+      await refreshBridge();
+    } catch (err) {
+      notify(err.message, "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const bindCurrent = async () => {
+    if (!campaignId) return;
+    const npcKey = npcKeyInput.trim() || globalThis.prompt?.("\u8981\u7ED1\u5B9A\u7684 NPC key\uFF08\u7559\u7A7A=\u73A9\u5BB6\u4EBA\u683C\uFF09\uFF1A", "elder_mira") || "";
+    setBusy(true);
+    try {
+      const binding = await bindCurrentCharacter(campaignId, npcKey.trim() || null);
+      notify(`Bound ${binding.stAvatar} \u2192 ${binding.npcName ?? "player persona"}.`, "success");
+      setNpcKeyInput("");
+      await refreshBridge();
+    } catch (err) {
+      notify(err.message, "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const importCard = async () => {
+    if (!campaignId) return;
+    setBusy(true);
+    try {
+      const result = await importCurrentCardAsNpc(campaignId);
+      notify(`Created DRAFT NPC '${result.asset.key}' (rev ${result.asset.revision}). Validate \u2192 review \u2192 publish \u2192 build \u2192 Campaign Upgrade.`, "success");
+    } catch (err) {
+      notify(err.message, "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const openBindingChat = async (binding) => {
+    try {
+      await openCharacterByAvatar(binding.stAvatar);
+      notify(`Opened ${binding.stCharacterName || binding.stAvatar}.`, "success");
+    } catch (err) {
+      notify(err.message, "warning");
+    }
+  };
+  const unbind = async (binding) => {
+    setBusy(true);
+    try {
+      await removeBinding(campaignId, binding.id);
+      notify("Binding removed.", "info");
+      await refreshBridge();
+    } catch (err) {
+      notify(err.message, "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const toggleAuto = async () => {
+    if (!campaignId) return;
+    const next = setAutoSettings({ ...autoSettings, enabled: !autoSettings.enabled });
+    setAuto(next);
+    setBusy(true);
+    try {
+      const result = await applyAutoSchedule(campaignId, next);
+      notify(`Auto-scan ${next.enabled ? `every ${next.everyN} messages` : "off"} (${result.updated} scope(s) updated).`, "success");
+      await refreshBridge();
+    } catch (err) {
+      notify(err.message, "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const changeAutoN = async (value) => {
+    const next = setAutoSettings({ ...autoSettings, everyN: value });
+    setAuto(next);
+    if (!next.enabled || !campaignId) return;
+    setBusy(true);
+    try {
+      await applyAutoSchedule(campaignId, next);
       await refreshBridge();
     } catch (err) {
       notify(err.message, "danger");
@@ -155449,6 +155665,57 @@ ${hint}`, "");
           /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { onClick: () => manualScope(scope), disabled: busy, children: "Manual\u2026" })
         ] })
       ] }, scope.key)) }) : /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Empty, { title: "No scopes yet", icon: "\u25C7", children: "Add starter scopes to begin." })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("section", { className: "strpg-panel", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
+        SectionTitle,
+        {
+          eyebrow: "M3.1 \xB7 M4 \xB7 CHARACTER BINDINGS",
+          title: "Chat \u2194 RPG identity",
+          description: "Bind a SillyTavern character to an STRPG NPC (or to the player persona). A bound NPC carries its relationship and memory into the chat, and open_chat events can switch to it.",
+          actions: /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { size: "sm", onClick: refreshBridge, disabled: busy, children: "Refresh" })
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: "strpg-row wrap", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Badge, { tone: autoSettings.enabled ? "gold" : "info", children: [
+          "Auto-scan: ",
+          autoSettings.enabled ? `every ${autoSettings.everyN} messages` : "off"
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { onClick: toggleAuto, disabled: !campaignId || busy, children: autoSettings.enabled ? "Disable auto-scan" : "Enable auto-scan" }),
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Field, { label: "Every N messages", children: /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
+          Input,
+          {
+            type: "number",
+            min: "1",
+            max: "100",
+            value: autoSettings.everyN,
+            onChange: (event) => changeAutoN(event.target.value)
+          }
+        ) })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: "strpg-row wrap", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Field, { label: "NPC key (blank = player persona)", children: /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Input, { value: npcKeyInput, onChange: (event) => setNpcKeyInput(event.target.value), placeholder: "elder_mira" }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { variant: "gold", onClick: bindCurrent, disabled: !campaignId || busy, children: "Bind current character" }),
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { onClick: importCard, disabled: !campaignId || busy, children: "Import current card as NPC" })
+      ] }),
+      bindings.length ? /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("div", { className: "strpg-form", children: bindings.map((binding) => /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: "strpg-item-card", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: "strpg-item-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("div", { className: "strpg-item-icon", children: "\u263A" }),
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("strong", { children: binding.npcName ?? "Player persona" }),
+            /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("span", { children: [
+              binding.stCharacterName || binding.stAvatar,
+              " \xB7 ",
+              binding.direction
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Badge, { tone: binding.npcKey ? "info" : "gold", children: binding.npcKey ?? "player" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: "strpg-row end", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { onClick: () => openBindingChat(binding), disabled: busy, children: "Open chat" }),
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { variant: "ghost", onClick: () => unbind(binding), disabled: busy, children: "Unbind" })
+        ] })
+      ] }, binding.id)) }) : /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Empty, { title: "No character bindings", icon: "\u25C7", children: "Bind the active character to an NPC to share memory both ways." })
     ] }),
     memoryOpen && /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
       Modal,
@@ -156203,6 +156470,30 @@ function App() {
   });
   const chatKey = chatIdentity.key;
   const chatName = chatIdentity.name;
+  const [boundNpcLine, setBoundNpcLine] = (0, import_react22.useState)("");
+  (0, import_react22.useEffect)(() => {
+    let cancelled = false;
+    const character = (() => {
+      try {
+        return currentCharacter();
+      } catch {
+        return null;
+      }
+    })();
+    if (!activeCampaign || !character?.avatar) {
+      setBoundNpcLine("");
+      return () => {
+      };
+    }
+    api(`/campaigns/${activeCampaign}/bindings/context?avatar=${encodeURIComponent(character.avatar)}`).then((result) => {
+      if (!cancelled) setBoundNpcLine(result?.context?.line ?? "");
+    }).catch(() => {
+      if (!cancelled) setBoundNpcLine("");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCampaign, chatKey]);
   const updateChatIdentity = (0, import_react22.useCallback)(() => {
     try {
       const next = { key: hasChat() ? getChatKey() : null, name: getChatName() };
@@ -156317,6 +156608,7 @@ function App() {
       if (!activeCampaign2) return;
       const message = ctx.chat?.[messageId];
       if (!message?.mes) return;
+      void maybeAutoScan(activeCampaign2, notify);
       void refresh(activeCampaign2, { silent: true });
       const dedupeKey = `${getChatKey()}:${messageId}:${message.swipe_id ?? 0}`;
       if (seenMessages.current.has(dedupeKey)) return;
@@ -156412,6 +156704,7 @@ function App() {
         `Player: ${dashboard.player.name} Lv.${dashboard.player.level} | HP ${dashboard.player.hp}/${dashboard.player.stats.maxHp} | MP ${dashboard.player.mp}/${dashboard.player.stats.maxMp} | XP ${dashboard.player.xp}/${dashboard.player.xpToNext} | Gold ${dashboard.player.gold}`,
         `Active quests: ${dashboard.activeQuests.map((quest) => `${quest.name} [${quest.status}]`).join(" | ") || "none"}`,
         `Story node: ${dashboard.story?.current?.title ?? "none"}${dashboard.story?.ending ? ` | ENDING: ${dashboard.story.ending.title}` : ""}`,
+        boundNpcLine ? `[BOUND NPC] ${boundNpcLine}` : "",
         dashboard.pendingCombat ? `PENDING COMBAT: ${dashboard.pendingCombat.id} (${dashboard.pendingCombat.status})` : "PENDING COMBAT: none",
         "Rules: STRPG is the only authority for HP, MP, EXP, gold, items, skills, quests and combat. Never invent or change those numbers. Narrate only results returned by STRPG.",
         "If the player explicitly asks to move or a hostile encounter is clearly triggered, you may append exactly one proposal block:",
@@ -156433,7 +156726,7 @@ function App() {
       ctx.setExtensionPrompt?.("STRPG_CONTEXT", prompt, 1, 2, false, 0);
     } catch {
     }
-  }, [dashboard]);
+  }, [dashboard, boundNpcLine]);
   const bindCurrentChat = (0, import_react22.useCallback)(async () => {
     if (!campaignId || !chatKey) return;
     setLoading(true);

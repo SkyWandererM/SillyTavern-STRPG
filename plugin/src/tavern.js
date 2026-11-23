@@ -1,4 +1,5 @@
 import { ConflictError, NotFoundError, ValidationError } from './errors.js';
+import { createAsset } from './studio.js';
 import { nowIso, parseJson } from './util.js';
 
 function characterPayload(row) {
@@ -58,4 +59,61 @@ export async function importNpcToTavern(db, assetId, request) {
         db.prepare('UPDATE content_assets SET data_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(next), importedAt, assetId);
     }
     return { avatar, importedAt, npcKey: data.key ?? row.asset_key, name: payload.ch_name, persisted: row.status === 'DRAFT' };
+}
+
+/**
+ * M4: import a SillyTavern character card as a DRAFT NPC asset in the campaign's project.
+ * The card supplies voice and identity; numbers are never imported.
+ */
+export function importCardAsNpc(db, campaignId, card = {}) {
+    const campaign = db.prepare(`
+        SELECT c.*, v.project_id FROM campaigns c JOIN game_versions v ON v.id = c.game_version_id WHERE c.id = ?
+    `).get(campaignId);
+    if (!campaign) throw new NotFoundError(`Campaign '${campaignId}' not found`, 'CAMPAIGN_NOT_FOUND');
+    const name = String(card.name ?? card.ch_name ?? '').trim();
+    if (!name) throw new ValidationError('Character name is required');
+    const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48) || 'npc';
+    let key = base;
+    let suffix = 2;
+    while (db.prepare('SELECT 1 FROM content_assets WHERE project_id = ? AND kind = ? AND asset_key = ?').get(campaign.project_id, 'npc', key)) {
+        key = `${base}_${suffix}`;
+        suffix += 1;
+        if (suffix > 99) throw new ConflictError('Too many NPCs with that name', 'NPC_KEY_CONFLICT');
+    }
+    const firstMessage = String(card.firstMessage ?? card.first_mes ?? '').slice(0, 2000);
+    const data = {
+        key,
+        name,
+        title: String(card.title ?? '').slice(0, 200),
+        description: String(card.description ?? '').slice(0, 20000),
+        personality: String(card.personality ?? '').slice(0, 6000),
+        motivation: String(card.scenario ?? '').slice(0, 6000),
+        interactions: [{
+            key: 'talk',
+            label: 'Talk',
+            type: 'talk',
+            dialogue: firstMessage ? [firstMessage] : [],
+        }],
+        tavern: {
+            avatar: String(card.avatar ?? '').slice(0, 300),
+            importedAt: nowIso(),
+        },
+        sourceCard: {
+            name,
+            creator: String(card.creator ?? '').slice(0, 120),
+            tags: Array.isArray(card.tags) ? card.tags.map(String).slice(0, 20) : [],
+        },
+        tags: ['strpg', 'imported-card'],
+    };
+    const asset = createAsset(db, campaign.project_id, { kind: 'npc', name, data });
+    return {
+        asset: { id: asset.id, key, name, status: asset.status, revision: asset.revision },
+        projectId: campaign.project_id,
+        next: [
+            'Open Studio -> content, validate and review the new NPC asset.',
+            'Publish it, then build a new Game Version.',
+            'Adventure -> Campaign -> Upgrade so the running campaign can use it.',
+            'Bind the character avatar to the NPC in Integrations -> Character Bindings.',
+        ],
+    };
 }

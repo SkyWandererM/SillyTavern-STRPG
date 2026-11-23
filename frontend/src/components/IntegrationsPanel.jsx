@@ -3,6 +3,8 @@ import { api, downloadJson, getStContext } from '../api.js';
 import { Badge, Button, Empty, ErrorBox, Field, Input, Modal, SectionTitle, Select, Textarea } from '../ui.jsx';
 import { performChatLine } from '../chatBridge.js';
 import { manualIngest, scanScope, SCOPE_MANUAL_HINTS } from '../scopeBridge.js';
+import { bindCurrentCharacter, importCurrentCardAsNpc, openCharacterByAvatar, removeBinding, loadBindings } from '../characterBridge.js';
+import { applyAutoSchedule, getAutoSettings, setAutoSettings } from '../scopeScheduler.js';
 import {
     isPushEnabled, loadBridge, pullTrackerNarrative, pushMirrorToTracker, setPushEnabled, trackerAvailable,
 } from '../trackerBridge.js';
@@ -19,6 +21,9 @@ export function IntegrationsPanel({ campaignId, notify }) {
     const [bridge, setBridge] = useState(null);
     const [signalName, setSignalName] = useState('');
     const [scopes, setScopes] = useState([]);
+    const [bindings, setBindings] = useState([]);
+    const [npcKeyInput, setNpcKeyInput] = useState('');
+    const [autoSettings, setAuto] = useState(() => getAutoSettings());
     const [candidates, setCandidates] = useState([]);
     const [pushOn, setPushOn] = useState(() => isPushEnabled());
     const [trackerReady, setTrackerReady] = useState(() => trackerAvailable());
@@ -46,6 +51,7 @@ export function IntegrationsPanel({ campaignId, notify }) {
             setBridge(data.status);
             setCandidates(data.candidates.candidates ?? []);
             setScopes(scopeData.scopes ?? []);
+            setBindings(bindingData.bindings ?? []);
             setTrackerReady(trackerAvailable());
         } catch (err) {
             notify(`Bridge status failed: ${err.message}`, 'danger');
@@ -94,6 +100,88 @@ export function IntegrationsPanel({ campaignId, notify }) {
         try {
             const result = await manualIngest(campaignId, scope, text);
             notify(`Manual ingest: ${result.queued} queued${result.duplicates ? `, ${result.duplicates} duplicate` : ''}${result.skipped?.length ? `, ${result.skipped.length} skipped` : ''}.`, result.queued ? 'success' : 'warning');
+            await refreshBridge();
+        } catch (err) {
+            notify(err.message, 'danger');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+const bindCurrent = async () => {
+        if (!campaignId) return;
+        const npcKey = npcKeyInput.trim() || globalThis.prompt?.('要绑定的 NPC key（留空=玩家人格）：', 'elder_mira') || '';
+        setBusy(true);
+        try {
+            const binding = await bindCurrentCharacter(campaignId, npcKey.trim() || null);
+            notify(`Bound ${binding.stAvatar} → ${binding.npcName ?? 'player persona'}.`, 'success');
+            setNpcKeyInput('');
+            await refreshBridge();
+        } catch (err) {
+            notify(err.message, 'danger');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const importCard = async () => {
+        if (!campaignId) return;
+        setBusy(true);
+        try {
+            const result = await importCurrentCardAsNpc(campaignId);
+            notify(`Created DRAFT NPC '${result.asset.key}' (rev ${result.asset.revision}). Validate → review → publish → build → Campaign Upgrade.`, 'success');
+        } catch (err) {
+            notify(err.message, 'danger');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const openBindingChat = async (binding) => {
+        try {
+            await openCharacterByAvatar(binding.stAvatar);
+            notify(`Opened ${binding.stCharacterName || binding.stAvatar}.`, 'success');
+        } catch (err) {
+            notify(err.message, 'warning');
+        }
+    };
+
+    const unbind = async (binding) => {
+        setBusy(true);
+        try {
+            await removeBinding(campaignId, binding.id);
+            notify('Binding removed.', 'info');
+            await refreshBridge();
+        } catch (err) {
+            notify(err.message, 'danger');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const toggleAuto = async () => {
+        if (!campaignId) return;
+        const next = setAutoSettings({ ...autoSettings, enabled: !autoSettings.enabled });
+        setAuto(next);
+        setBusy(true);
+        try {
+            const result = await applyAutoSchedule(campaignId, next);
+            notify(`Auto-scan ${next.enabled ? `every ${next.everyN} messages` : 'off'} (${result.updated} scope(s) updated).`, 'success');
+            await refreshBridge();
+        } catch (err) {
+            notify(err.message, 'danger');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const changeAutoN = async (value) => {
+        const next = setAutoSettings({ ...autoSettings, everyN: value });
+        setAuto(next);
+        if (!next.enabled || !campaignId) return;
+        setBusy(true);
+        try {
+            await applyAutoSchedule(campaignId, next);
             await refreshBridge();
         } catch (err) {
             notify(err.message, 'danger');
@@ -454,6 +542,56 @@ export function IntegrationsPanel({ campaignId, notify }) {
                         ))}
                     </div>
                 ) : <Empty title="No scopes yet" icon="◇">Add starter scopes to begin.</Empty>}
+            </section>
+            <section className="strpg-panel">
+                <SectionTitle
+                    eyebrow="M3.1 · M4 · CHARACTER BINDINGS"
+                    title="Chat ↔ RPG identity"
+                    description="Bind a SillyTavern character to an STRPG NPC (or to the player persona). A bound NPC carries its relationship and memory into the chat, and open_chat events can switch to it."
+                    actions={<Button size="sm" onClick={refreshBridge} disabled={busy}>Refresh</Button>}
+                />
+                <div className="strpg-row wrap">
+                    <Badge tone={autoSettings.enabled ? 'gold' : 'info'}>
+                        Auto-scan: {autoSettings.enabled ? `every ${autoSettings.everyN} messages` : 'off'}
+                    </Badge>
+                    <Button onClick={toggleAuto} disabled={!campaignId || busy}>{autoSettings.enabled ? 'Disable auto-scan' : 'Enable auto-scan'}</Button>
+                    <Field label="Every N messages">
+                        <Input
+                            type="number"
+                            min="1"
+                            max="100"
+                            value={autoSettings.everyN}
+                            onChange={(event) => changeAutoN(event.target.value)}
+                        />
+                    </Field>
+                </div>
+                <div className="strpg-row wrap">
+                    <Field label="NPC key (blank = player persona)">
+                        <Input value={npcKeyInput} onChange={(event) => setNpcKeyInput(event.target.value)} placeholder="elder_mira" />
+                    </Field>
+                    <Button variant="gold" onClick={bindCurrent} disabled={!campaignId || busy}>Bind current character</Button>
+                    <Button onClick={importCard} disabled={!campaignId || busy}>Import current card as NPC</Button>
+                </div>
+                {bindings.length ? (
+                    <div className="strpg-form">
+                        {bindings.map((binding) => (
+                            <div key={binding.id} className="strpg-item-card">
+                                <div className="strpg-item-head">
+                                    <div className="strpg-item-icon">☺</div>
+                                    <div>
+                                        <strong>{binding.npcName ?? 'Player persona'}</strong>
+                                        <span>{binding.stCharacterName || binding.stAvatar} · {binding.direction}</span>
+                                    </div>
+                                    <Badge tone={binding.npcKey ? 'info' : 'gold'}>{binding.npcKey ?? 'player'}</Badge>
+                                </div>
+                                <div className="strpg-row end">
+                                    <Button onClick={() => openBindingChat(binding)} disabled={busy}>Open chat</Button>
+                                    <Button variant="ghost" onClick={() => unbind(binding)} disabled={busy}>Unbind</Button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : <Empty title="No character bindings" icon="◇">Bind the active character to an NPC to share memory both ways.</Empty>}
             </section>
             {memoryOpen && <Modal
                 title="Memory Books Summary"

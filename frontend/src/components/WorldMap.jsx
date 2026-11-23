@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api, randomIdempotencyKey } from '../api.js';
+import { handleOpenChatActions } from '../characterBridge.js';
 import { PhaserMap } from './PhaserMap.jsx';
 import { Badge, Button, Empty, ErrorBox, Loading, SectionTitle } from '../ui.jsx';
 
@@ -54,6 +55,7 @@ export function WorldMap({ campaignId, revision, notify, onMutated, openCombat }
             const suffix = eventNames.length ? ` Event: ${eventNames.join(', ')}.` : '';
             const noticeText = notices.length ? ` ${notices.join(' ')}` : '';
             notify(`Arrived at ${location.name}.${suffix}${noticeText}`, 'success');
+            void handleOpenChatActions(campaignId, result.worldEvents, notify);
             setSelectedId(null);
             await load();
             await onMutated?.();
