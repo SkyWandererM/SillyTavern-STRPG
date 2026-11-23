@@ -225,6 +225,21 @@ NPC asset, then use the tools or the endpoints:
 | `teaching[]` | `{skillKey, tuition:{gold,items}, relationRequired, condition}` |
 | `recovery` | `{enabled, hpThreshold, methods:[{key,restoreHp,restoreMp,relationDelta,cost}]}` |
 | `shop.haggle` | `{enabled, maxDiscount}` — server computes the price floor |
+| `barter[]` | `{key, label, itemKey, questKey, relationDelta}` — item now, service quest debt later |
+
+### Memory scopes (M3)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/campaigns/:id/scopes` | Scope list + supported kinds |
+| POST | `/campaigns/:id/scopes` | `{key, name, enabled, config}` create/update |
+| POST | `/campaigns/:id/scopes/defaults` | Create `npc_state` + `relationship_changes` |
+| POST | `/campaigns/:id/scopes/:key/prepare` | `{messages:[{speaker,text}]}` → extraction prompt |
+| POST | `/campaigns/:id/scopes/:key/scan` | `{raw}` (model answer), `{items}` or `{note}` (manual) |
+| DELETE | `/campaigns/:id/scopes/:key` | Remove a scope |
+
+Kinds: `narrative`, `relation`, `flag`, `performance`. Items are validated and queued as
+bridge candidates carrying `scopeKey`; a manual `note` is only valid for narrative scopes.
 
 Every `cost` / `tuition` may also carry non-cash receipts:
 
@@ -437,6 +452,7 @@ Semantics:
 | `strpg_propose_tuition` | Skill training → candidate | No (candidate only) |
 | `strpg_propose_recovery` | Help a low-state NPC → candidate | No (candidate only) |
 | `strpg_receive_signal` | Record a favour receipt and release matching proposals | Only via approved proposals |
+| `strpg_propose_barter` | Front an item for a service quest | No (candidate only) |
 
 ```http
 POST /tools/strpg_get_status

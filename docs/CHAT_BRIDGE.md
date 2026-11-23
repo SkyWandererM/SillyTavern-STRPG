@@ -56,6 +56,25 @@ M2 的语义：**聊天里发起 → 服务端报价/校验 → 审核 → 事�
 - 手动放行不能绕过金币/物品不足（那是硬失败），只绕过 signal/flag/quest 这类凭证。
 - `dialogue` 不会自动调用 LLM；它把已经写好的台词作为消息插入聊天（NPC 名或旁白）。
 
+## 0.3 M3 实施状态（v1.7.0 已完成）
+
+| 能力 | 落地位置 |
+|---|---|
+| Scope 注册表（kind / 窗口 / 过滤 / 启用） | `memory_scopes` 表（schema v5）+ `plugin/src/scopes.js` |
+| 服务端生成抽取 prompt | `POST /scopes/:key/prepare`（含 NPC key 白名单、`requiresKey` 过滤） |
+| 结构化入库 | `POST /scopes/:key/scan`，支持 `items` / `raw`（容错 JSON）/ `note`（仅 narrative） |
+| 候选溯源 | `bridge_candidates.scope_key` + evidence（消息数、来源） |
+| 劳务抵账 | `npc.barter[]` + `proposeBarter` / `applyBarter`；quest turn-in 时 `settleBarterDebts` |
+| 手动兜底 | Scope「Manual…」、`note` 单句、`overrideReason` 放行、barter 已完成后手动结算 |
+| 测试 | `tests/scopes.test.js` 9 例，套件合计 70 |
+
+M3 的取舍：
+
+- **服务端不读聊天**：窗口由扩展采集，服务端只负责"给 prompt / 验收入库"，这样权限边界干净。
+- **自动定时扫描暂缺**：`schedule` 字段保留，但当前只有手动按钮与"Scan chat (LLM)"；定时器属于
+  前端（只有它能看到聊天），后续可在扩展里加 N 条消息触发。
+- **抵账是一等公民**：批准时先交货 + 接任务，任务交还时结算人情，全程可审计、可手动放行。
+
 ---
 
 目标：让 RPG 与聊天共用一套「记忆 + 关系 + 状态」，两个方向都能走：

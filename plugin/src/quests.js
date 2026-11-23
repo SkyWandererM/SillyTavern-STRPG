@@ -274,6 +274,37 @@ export function updateQuestProgress(db, campaignId, event = {}) {
     return { changes, events };
 }
 
+/**
+ * Barter debts settle when the service quest is turned in: the item was fronted at
+ * approval, so completion only grants the relationship change and clears the debt.
+ */
+function settleBarterDebts(db, campaignId, questKey) {
+    const rows = db.prepare("SELECT var_key, value_json FROM campaign_variables WHERE campaign_id = ? AND var_key LIKE 'barter:%'").all(campaignId);
+    const settled = [];
+    for (const row of rows) {
+        let debt;
+        try { debt = JSON.parse(row.value_json); } catch { continue; }
+        if (!debt || debt.questKey !== questKey) continue;
+        const delta = Math.max(0, Math.min(2, Math.round(Number(debt.relationDelta ?? 1))));
+        if (delta > 0) {
+            const key = `npc:${debt.npcKey}:relation`;
+            const current = db.prepare('SELECT value_json FROM campaign_variables WHERE campaign_id = ? AND var_key = ?').get(campaignId, key);
+            const before = current ? Number(JSON.parse(current.value_json)) || 0 : 0;
+            const after = Math.max(-100, Math.min(100, before + delta));
+            db.prepare(`
+                INSERT INTO campaign_variables (campaign_id, var_key, value_json, updated_at) VALUES (?, ?, ?, ?)
+                ON CONFLICT(campaign_id, var_key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+            `).run(campaignId, key, JSON.stringify(after), nowIso());
+        }
+        db.prepare('DELETE FROM campaign_variables WHERE campaign_id = ? AND var_key = ?').run(campaignId, row.var_key);
+        insertEvent(db, campaignId, 'barter.settled', {
+            npcKey: debt.npcKey, itemKey: debt.itemKey, questKey, relationDelta: delta, candidateId: debt.candidateId,
+        }, `barter-settled:${campaignId}:${row.var_key}`);
+        settled.push({ npcKey: debt.npcKey, itemKey: debt.itemKey, relationDelta: delta });
+    }
+    return settled;
+}
+
 export function turnInQuest(db, campaignId, questKey, options = {}) {
     const definition = getQuestDefinition(db, campaignId, questKey);
     const quest = definition.data;
@@ -300,9 +331,11 @@ export function turnInQuest(db, campaignId, questKey, options = {}) {
         db.prepare("UPDATE quest_instances SET status = 'turned_in', turned_in_at = ?, updated_at = ? WHERE id = ?")
             .run(now, now, instance.id);
         insertEvent(db, campaignId, 'quest.turned_in', { questKey, rewards: granted }, `quest-turned-in:${campaignId}:${questKey}`);
+        const barters = settleBarterDebts(db, campaignId, questKey);
         return {
             ...questView(db, campaignId, questKey),
             rewards: { ...questView(db, campaignId, questKey).rewards, granted },
+            barters,
             event: { type: 'quest.turned_in', targetKey: questKey },
         };
     });

@@ -415,6 +415,7 @@ export function App() {
                 'strpg_propose_tuition',
                 'strpg_propose_recovery',
                 'strpg_receive_signal',
+                'strpg_propose_barter',
             ]);
             if (!allowed.has(call.tool)) {
                 notify(`Disallowed tool call: ${call.tool}`, 'warning');
@@ -433,6 +434,8 @@ export function App() {
                     setTab('combat');
                 } else if (call.tool === 'strpg_propose_relation') {
                     notify('Relationship proposal queued for review. Open Integrations -> Bridge to approve it.', 'gold');
+                } else if (call.tool === 'strpg_propose_barter') {
+                    notify('Barter proposal queued: approve to take the item and start the service quest.', 'gold');
                 } else if (call.tool === 'strpg_receive_signal') {
                     const released = result.result?.released?.length ?? 0;
                     notify(`Favour signal recorded. ${released} proposal(s) released.`, 'success');
@@ -501,6 +504,7 @@ export function App() {
                 '<strpg>{"tool":"strpg_propose_recovery","args":{"npcKey":"npc_key"}}</strpg>',
                 'When a non-cash cost is actually fulfilled in the scene (a favour done, a promise kept), send the matching receipt:',
                 '<strpg>{"tool":"strpg_receive_signal","args":{"name":"favour_signal","note":"what the player did"}}</strpg>',
+                '<strpg>{"tool":"strpg_propose_barter","args":{"npcKey":"npc_key","itemKey":"item_key"}}</strpg>',
                 'A proposal is not an action. The player must confirm; never claim the move or combat already happened before STRPG confirms it.',
                 'Do not output SQL, code, or tool calls for direct stat changes.',
             ].join('\n');

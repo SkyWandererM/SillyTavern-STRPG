@@ -18,8 +18,8 @@ import { ConflictError, NotFoundError, ValidationError } from './errors.js';
 export const RELATION_MIN = -100;
 export const RELATION_MAX = 100;
 export const RELATION_MAX_STEP = 2;
-export const CANDIDATE_KINDS = ['relation', 'narrative', 'flag', 'trade', 'recruit', 'tuition', 'recovery', 'performance'];
-const SOCIAL_KINDS = new Set(['trade', 'recruit', 'tuition', 'recovery']);
+export const CANDIDATE_KINDS = ['relation', 'narrative', 'flag', 'trade', 'barter', 'recruit', 'tuition', 'recovery', 'performance'];
+const SOCIAL_KINDS = new Set(['trade', 'barter', 'recruit', 'tuition', 'recovery']);
 
 function campaignRow(db, campaignId) {
     const row = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(campaignId);
@@ -56,6 +56,7 @@ function candidateView(row) {
         id: row.id,
         campaignId: row.campaign_id,
         kind: row.kind,
+        scopeKey: row.scope_key ?? null,
         source: row.source,
         payload: parseJson(row.payload_json, {}),
         evidence: parseJson(row.evidence_json, {}),
@@ -155,12 +156,13 @@ export function queueCandidate(db, campaignId, input = {}) {
 
     const id = uuid('cand_');
     db.prepare(`
-        INSERT INTO bridge_candidates (id, campaign_id, kind, source, payload_json, evidence_json, confidence, dedupe_hash, status, created_at, note)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)
+        INSERT INTO bridge_candidates (id, campaign_id, kind, scope_key, source, payload_json, evidence_json, confidence, dedupe_hash, status, created_at, note)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)
     `).run(
         id,
         campaignId,
         kind,
+        input.scopeKey ? String(input.scopeKey).slice(0, 120) : null,
         String(input.source ?? 'manual').slice(0, 40),
         asJson(payload),
         asJson(input.evidence ?? {}),
@@ -199,6 +201,7 @@ export function proposeRelation(db, campaignId, input = {}) {
         kind: 'relation',
         source: input.source ?? 'llm',
         payload: { npcKey: npc.key, npcName: npc.name, delta: Math.round(delta * 10) / 10, before, after, reason },
+        scopeKey: input.scopeKey,
         evidence,
         confidence: input.confidence,
         note: input.note,

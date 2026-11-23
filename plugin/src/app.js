@@ -38,11 +38,12 @@ import {
     approveCandidate, bridgeStatus, listCandidates, pullTrackerNarrative, receiveSignal, rejectCandidate, trackerMirror,
 } from './bridge.js';
 import { socialOptions } from './social.js';
+import { deleteScope, ensureStarterScopes, ingestScope, ingestScopeRaw, listScopes, scopePrompt, upsertScope } from './scopes.js';
 import { databaseInfo, readSetting, verifySchema, writeSetting } from './db.js';
 import { seedExampleProject } from './seed.js';
 import { idempotent, nowIso, parseJson, uuid, withTransaction } from './util.js';
 
-export const PLUGIN_VERSION = '1.6.0';
+export const PLUGIN_VERSION = '1.7.0';
 
 function wrap(handler) {
     return (req, res, next) => {
@@ -420,6 +421,16 @@ export function createRouter(db) {
     // Chat <-> RPG bridge (state mirror, reviewed memory candidates, incremental lorebook)
     router.get('/campaigns/:id/bridge', wrap((req, res) => send(res, bridgeStatus(db, req.params.id))));
     router.get('/campaigns/:id/social/:npcKey', wrap((req, res) => send(res, socialOptions(db, req.params.id, req.params.npcKey))));
+
+    // Memory scopes (M3): server-built extraction prompts + reviewed ingest
+    router.get('/campaigns/:id/scopes', wrap((req, res) => send(res, listScopes(db, req.params.id))));
+    router.post('/campaigns/:id/scopes', wrap((req, res) => send(res, upsertScope(db, req.params.id, req.body ?? {}))));
+    router.post('/campaigns/:id/scopes/defaults', wrap((req, res) => send(res, ensureStarterScopes(db, req.params.id))));
+    router.post('/campaigns/:id/scopes/:scopeKey/prepare', wrap((req, res) => send(res, scopePrompt(db, req.params.id, req.params.scopeKey, req.body ?? {}))));
+    router.post('/campaigns/:id/scopes/:scopeKey/scan', wrap((req, res) => send(res, req.body?.raw
+        ? ingestScopeRaw(db, req.params.id, req.params.scopeKey, req.body ?? {})
+        : ingestScope(db, req.params.id, req.params.scopeKey, req.body ?? {}))));
+    router.delete('/campaigns/:id/scopes/:scopeKey', wrap((req, res) => send(res, deleteScope(db, req.params.id, req.params.scopeKey))));
     router.post('/campaigns/:id/bridge/signals/:name', wrap(async (req, res) => {
         send(res, await receiveSignal(db, req.params.id, req.params.name, { note: req.body?.note }));
     }));

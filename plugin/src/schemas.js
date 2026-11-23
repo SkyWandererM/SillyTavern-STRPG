@@ -190,6 +190,13 @@ export const npcSchema = z.object({
         condition: conditionSchema.optional(),
         maxParty: z.number().int().min(1).max(4).optional(),
     }).optional(),
+    barter: z.array(z.object({
+        key: z.string(),
+        label: z.string().default(''),
+        itemKey: z.string(),
+        questKey: z.string(),
+        relationDelta: z.number().int().min(0).max(2).default(1),
+    })).default([]),
     teaching: z.array(z.object({
         skillKey: z.string(),
         tuition: costSchema,

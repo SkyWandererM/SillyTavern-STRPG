@@ -6,7 +6,7 @@ import { listQuests } from './quests.js';
 import { availableInteractionsAtCurrentLocation } from './interactions.js';
 import { nowIso, uuid } from './util.js';
 import { proposeRelation, receiveSignal, trackerMirror } from './bridge.js';
-import { proposeRecovery, proposeRecruit, proposeTrade, proposeTuition, socialOptions } from './social.js';
+import { proposeBarter, proposeRecovery, proposeRecruit, proposeTrade, proposeTuition, socialOptions } from './social.js';
 
 const REACTION_FIELDS = new Set(['npcKey', 'emotion', 'attitude', 'thought', 'gesture', 'summary']);
 
@@ -26,6 +26,7 @@ export const TOOL_DEFINITIONS = [
     { name: 'strpg_propose_recruit', description: 'Queue recruiting an NPC into the party with its configured cost.', input: { campaignId: 'string', npcKey: 'string' } },
     { name: 'strpg_propose_tuition', description: 'Queue learning a skill from an NPC with its configured tuition.', input: { campaignId: 'string', npcKey: 'string', skillKey: 'string' } },
     { name: 'strpg_propose_recovery', description: 'Queue an interaction that helps a low-state NPC recover.', input: { campaignId: 'string', npcKey: 'string', method: 'string' } },
+    { name: 'strpg_propose_barter', description: 'Pay with a service: fronted item now, quest debt settles on turn-in.', input: { campaignId: 'string', npcKey: 'string', itemKey: 'string', barterKey: 'string' } },
     { name: 'strpg_receive_signal', description: 'Record a favour signal when the player actually completed a non-cash payment in the scene.', input: { campaignId: 'string', name: 'string', note: 'string' } },
 ];
 
@@ -88,6 +89,10 @@ export async function callTool(db, name, args = {}) {
             candidate: result.candidate,
             note: 'Queued for review. The relationship changes only after approval.',
         };
+    }
+    if (name === 'strpg_propose_barter') {
+        const result = proposeBarter(db, campaignId, args);
+        return { accepted: true, authoritative: false, duplicate: result.duplicate, status: result.status, candidate: result.candidate, note: 'Approving fronts the item and starts the service quest.' };
     }
     if (name === 'strpg_receive_signal') {
         const result = await receiveSignal(db, campaignId, args.name ?? args.signal, { note: args.note });

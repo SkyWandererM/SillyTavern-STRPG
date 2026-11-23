@@ -3,6 +3,7 @@ import { addItem, countItem, getItemDefinition, itemView, removeItem } from './i
 import { getNpcByKey, npcData } from './interactions.js';
 import { queueCandidate } from './bridge.js';
 import { getEntityView, getPlayer, healEntity, unlockSkill } from './stats.js';
+import { acceptQuest } from './quests.js';
 import { ConflictError, NotFoundError, ValidationError } from './errors.js';
 import { clamp, insertEvent, nowIso, parseJson, withTransaction } from './util.js';
 
@@ -446,6 +447,90 @@ export function applyRecovery(db, campaignId, candidate, options = {}) {
     return { target: 'npc.recovery', npcKey: payload.npcKey, method: payload.method, healHp, healMp, requirements: paid.requirements, ...healed };
 }
 
+/* ---------------------------------------------------------------- barter */
+
+/**
+ * Pay with a service instead of gold: the NPC fronts the item, a quest is accepted, and
+ * the debt settles when that quest is turned in. Without a usable quest the approval can
+ * still be released manually with a reason (recorded in the audit log).
+ */
+export function proposeBarter(db, campaignId, input = {}) {
+    const npcKey = String(input.npcKey ?? '').trim();
+    const definition = definitionOf(db, campaignId, npcKey);
+    const policies = Array.isArray(definition.barter) ? definition.barter : [];
+    if (!policies.length) throw new ConflictError(`${definition.name} does not barter`, 'BARTER_NOT_AVAILABLE');
+    const policy = policies.find((entry) => (input.barterKey ? entry.key === input.barterKey : entry.itemKey === input.itemKey));
+    if (!policy) throw new NotFoundError('No matching barter offer for this NPC', 'BARTER_NOT_FOUND');
+    const item = getItemDefinition(db, campaignId, policy.itemKey);
+    if (!item) throw new NotFoundError(`Item '${policy.itemKey}' does not exist`, 'ITEM_DEFINITION_NOT_FOUND');
+    const status = db.prepare('SELECT status FROM quest_instances WHERE campaign_id = ? AND quest_key = ?')
+        .get(campaignId, policy.questKey)?.status ?? 'unavailable';
+    if (!['available', 'active', 'completed', 'turned_in'].includes(status)) {
+        throw new ConflictError(`The service quest '${policy.questKey}' is not available`, 'BARTER_QUEST_UNAVAILABLE', { status });
+    }
+    const candidate = queueCandidate(db, campaignId, {
+        kind: 'barter',
+        source: input.source ?? 'chat',
+        payload: {
+            npcKey,
+            npcName: definition.name,
+            barterKey: policy.key ?? `${npcKey}:${policy.itemKey}`,
+            itemKey: policy.itemKey,
+            itemName: itemView(item).name,
+            questKey: policy.questKey,
+            questStatus: status,
+            relationDelta: clamp(Math.round(Number(policy.relationDelta ?? 1)), 0, 2),
+        },
+        evidence: input.evidence ?? { questStatus: status },
+        confidence: input.confidence,
+    });
+    return { status, ...candidate };
+}
+
+export function applyBarter(db, campaignId, candidate, options = {}) {
+    const payload = candidate.payload ?? {};
+    const definition = definitionOf(db, campaignId, payload.npcKey);
+    const policy = (definition.barter ?? []).find((entry) => entry.key === payload.barterKey)
+        ?? (definition.barter ?? []).find((entry) => entry.itemKey === payload.itemKey && entry.questKey === payload.questKey);
+    if (!policy) throw new ConflictError('The barter offer no longer exists', 'BARTER_NOT_FOUND');
+    const questRow = db.prepare('SELECT status FROM quest_instances WHERE campaign_id = ? AND quest_key = ?')
+        .get(campaignId, policy.questKey);
+    if (!questRow) throw new ConflictError(`Quest '${policy.questKey}' is not part of this campaign`, 'BARTER_QUEST_UNAVAILABLE');
+    const player = getPlayer(db, campaignId);
+    const item = getItemDefinition(db, campaignId, policy.itemKey);
+    if (!item) throw new NotFoundError(`Item '${policy.itemKey}' does not exist`, 'ITEM_DEFINITION_NOT_FOUND');
+
+    if (['completed', 'turned_in'].includes(questRow.status)) {
+        // The service is already done: settle immediately (manual review path).
+        if (!options.overrideReason) {
+            throw new ConflictError('That service is already finished; approve with an override reason to settle it manually', 'BARTER_ALREADY_DONE', { status: questRow.status });
+        }
+        addItem(db, campaignId, player.id, policy.itemKey, 1, { source: `barter:${candidate.id}` });
+        const delta = clamp(Math.round(Number(policy.relationDelta ?? 1)), 0, 2);
+        if (delta) setRelation(db, campaignId, payload.npcKey, clamp(relationOf(db, campaignId, payload.npcKey) + delta, -100, 100));
+        insertEvent(db, campaignId, 'barter.settled', { npcKey: payload.npcKey, itemKey: policy.itemKey, questKey: policy.questKey, manual: true, candidateId: candidate.id }, `bridge-barter:${candidate.id}`);
+        return { target: 'barter.settled', npcKey: payload.npcKey, itemKey: policy.itemKey, manual: true, overrideReason: options.overrideReason };
+    }
+
+    if (questRow.status === 'active') throw new ConflictError('That service is already underway', 'BARTER_ALREADY_ACTIVE');
+    if (questRow.status !== 'available') throw new ConflictError('The service quest is not available', 'BARTER_QUEST_UNAVAILABLE', { status: questRow.status });
+
+    acceptQuest(db, campaignId, policy.questKey);
+    addItem(db, campaignId, player.id, policy.itemKey, 1, { source: `barter:${candidate.id}` });
+    db.prepare(`
+        INSERT INTO campaign_variables (campaign_id, var_key, value_json, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(campaign_id, var_key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+    `).run(campaignId, `barter:${payload.npcKey}:${policy.itemKey}`, JSON.stringify({
+        questKey: policy.questKey, npcKey: payload.npcKey, itemKey: policy.itemKey,
+        relationDelta: clamp(Math.round(Number(policy.relationDelta ?? 1)), 0, 2),
+        candidateId: candidate.id, startedAt: nowIso(),
+    }), nowIso());
+    insertEvent(db, campaignId, 'barter.started', {
+        npcKey: payload.npcKey, itemKey: policy.itemKey, questKey: policy.questKey, candidateId: candidate.id,
+    }, `bridge-barter:${candidate.id}`);
+    return { target: 'barter.started', npcKey: payload.npcKey, itemKey: policy.itemKey, questKey: policy.questKey, debt: true };
+}
+
 /* --------------------------------------------------------------- options */
 
 export function socialOptions(db, campaignId, npcKey) {
@@ -508,10 +593,11 @@ export function socialOptions(db, campaignId, npcKey) {
 /** Dispatch used by bridge.approveCandidate for the social candidate kinds. */
 export function applySocialCandidate(db, campaignId, candidate, options = {}) {
     if (candidate.kind === 'trade') return applyTrade(db, campaignId, candidate);
+    if (candidate.kind === 'barter') return applyBarter(db, campaignId, candidate, options);
     if (candidate.kind === 'recruit') return applyRecruit(db, campaignId, candidate, options);
     if (candidate.kind === 'tuition') return applyTuition(db, campaignId, candidate, options);
     if (candidate.kind === 'recovery') return applyRecovery(db, campaignId, candidate, options);
     throw new ValidationError(`Unsupported social candidate kind '${candidate.kind}'`);
 }
 
-export const SOCIAL_KINDS = ['trade', 'recruit', 'tuition', 'recovery'];
+export const SOCIAL_KINDS = ['trade', 'barter', 'recruit', 'tuition', 'recovery'];

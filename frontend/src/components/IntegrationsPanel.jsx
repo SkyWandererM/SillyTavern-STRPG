@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api, downloadJson, getStContext } from '../api.js';
 import { Badge, Button, Empty, ErrorBox, Field, Input, Modal, SectionTitle, Select, Textarea } from '../ui.jsx';
 import { performChatLine } from '../chatBridge.js';
+import { manualIngest, scanScope, SCOPE_MANUAL_HINTS } from '../scopeBridge.js';
 import {
     isPushEnabled, loadBridge, pullTrackerNarrative, pushMirrorToTracker, setPushEnabled, trackerAvailable,
 } from '../trackerBridge.js';
@@ -17,6 +18,7 @@ export function IntegrationsPanel({ campaignId, notify }) {
     const [memoryOpen, setMemoryOpen] = useState(false);
     const [bridge, setBridge] = useState(null);
     const [signalName, setSignalName] = useState('');
+    const [scopes, setScopes] = useState([]);
     const [candidates, setCandidates] = useState([]);
     const [pushOn, setPushOn] = useState(() => isPushEnabled());
     const [trackerReady, setTrackerReady] = useState(() => trackerAvailable());
@@ -37,15 +39,68 @@ export function IntegrationsPanel({ campaignId, notify }) {
     const refreshBridge = async () => {
         if (!campaignId) return;
         try {
-            const data = await loadBridge(campaignId);
+            const [data, scopeData] = await Promise.all([
+                loadBridge(campaignId),
+                api(`/campaigns/${campaignId}/scopes`),
+            ]);
             setBridge(data.status);
             setCandidates(data.candidates.candidates ?? []);
+            setScopes(scopeData.scopes ?? []);
             setTrackerReady(trackerAvailable());
         } catch (err) {
             notify(`Bridge status failed: ${err.message}`, 'danger');
         }
     };
     useEffect(() => { refreshBridge(); }, [campaignId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const addStarterScopes = async () => {
+        if (!campaignId) return;
+        setBusy(true);
+        try {
+            const result = await api(`/campaigns/${campaignId}/scopes/defaults`, { method: 'POST', body: {} });
+            setScopes(result.scopes ?? []);
+            notify(`Starter scopes ready (${(result.scopes ?? []).length}).`, 'success');
+        } catch (err) {
+            notify(err.message, 'danger');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const runScope = async (scope) => {
+        if (!campaignId) return;
+        setBusy(true);
+        try {
+            const result = await scanScope(campaignId, scope);
+            if (result.skipped) {
+                notify(`Scope skipped: ${result.reason}`, 'warning');
+            } else {
+                notify(`Scope '${scope.key}': ${result.queued} queued${result.duplicates ? `, ${result.duplicates} duplicate` : ''}${result.skipped?.length ? `, ${result.skipped.length} skipped` : ''}.`, result.queued ? 'success' : 'info');
+            }
+            await refreshBridge();
+        } catch (err) {
+            notify(err.message, 'danger');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const manualScope = async (scope) => {
+        if (!campaignId) return;
+        const hint = SCOPE_MANUAL_HINTS[scope.config?.extract?.kind] ?? '';
+        const text = globalThis.prompt?.(`Manual ingest for '${scope.key}'\n你可以直接写一句摘要，或粘贴 JSON：\n${hint}`, '');
+        if (!text) return;
+        setBusy(true);
+        try {
+            const result = await manualIngest(campaignId, scope, text);
+            notify(`Manual ingest: ${result.queued} queued${result.duplicates ? `, ${result.duplicates} duplicate` : ''}${result.skipped?.length ? `, ${result.skipped.length} skipped` : ''}.`, result.queued ? 'success' : 'warning');
+            await refreshBridge();
+        } catch (err) {
+            notify(err.message, 'danger');
+        } finally {
+            setBusy(false);
+        }
+    };
 
     const pullTracker = async () => {
         if (!campaignId) return;
@@ -366,6 +421,40 @@ export function IntegrationsPanel({ campaignId, notify }) {
                     </div>
                 ) : <Empty title="No pending candidates" icon="◇" />}
             </section>
+            <section className="strpg-panel">
+                <SectionTitle
+                    eyebrow="M3 · MEMORY SCOPES"
+                    title="Chat memory scopes"
+                    description="Define what to extract from a chat window. The server builds the prompt, the extension runs it, and every item lands in the review queue. Manual mode works without a model."
+                    actions={(
+                        <div className="strpg-row">
+                            <Button size="sm" onClick={refreshBridge} disabled={busy}>Refresh</Button>
+                            <Button size="sm" variant="ghost" onClick={addStarterScopes} disabled={!campaignId || busy}>Add starter scopes</Button>
+                        </div>
+                    )}
+                />
+                {scopes.length ? (
+                    <div className="strpg-form">
+                        {scopes.map((scope) => (
+                            <div key={scope.key} className="strpg-item-card">
+                                <div className="strpg-item-head">
+                                    <div className="strpg-item-icon">◇</div>
+                                    <div>
+                                        <strong>{scope.name}</strong>
+                                        <span>{scope.key} · {scope.config?.extract?.kind ?? 'narrative'} · last {scope.config?.source?.lastN ?? 12} messages</span>
+                                    </div>
+                                    <Badge tone={scope.enabled ? 'success' : 'info'}>{scope.enabled ? 'enabled' : 'paused'}</Badge>
+                                </div>
+                                <p className="strpg-muted">Last run: {scope.lastRunAt ? new Date(scope.lastRunAt).toLocaleString() : 'never'}</p>
+                                <div className="strpg-row end">
+                                    <Button variant="gold" onClick={() => runScope(scope)} disabled={busy}>Scan chat (LLM)</Button>
+                                    <Button onClick={() => manualScope(scope)} disabled={busy}>Manual…</Button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : <Empty title="No scopes yet" icon="◇">Add starter scopes to begin.</Empty>}
+            </section>
             {memoryOpen && <Modal
                 title="Memory Books Summary"
                 subtitle="Copy into a Memory Books memory entry or Side Prompt. STRPG never writes its internal database."
@@ -401,6 +490,10 @@ function describeCandidate(candidate) {
             .map(([key, value]) => `${key}: ${value}`)
             .join('  ·  ')
             .slice(0, 400);
+    }
+    if (candidate.kind === 'barter') {
+        const payload = candidate.payload ?? {};
+        return `${payload.itemName ?? payload.itemKey} now — repay by: ${payload.questKey} (relation +${payload.relationDelta ?? 0}, quest ${payload.questStatus})`;
     }
     if (candidate.kind === 'trade') {
         const payload = candidate.payload ?? {};

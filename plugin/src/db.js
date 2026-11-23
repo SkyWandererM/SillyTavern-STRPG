@@ -104,6 +104,30 @@ export const MIGRATIONS = [
             `);
         },
     },
+    {
+        version: 5,
+        name: 'memory-scopes',
+        up(db) {
+            const columns = new Set(db.prepare('PRAGMA table_info("bridge_candidates")').all().map((row) => row.name));
+            if (!columns.has('scope_key')) db.exec('ALTER TABLE bridge_candidates ADD COLUMN scope_key TEXT');
+            db.exec(`
+                CREATE TABLE IF NOT EXISTS memory_scopes (
+                    id TEXT PRIMARY KEY,
+                    campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+                    scope_key TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    config_json TEXT NOT NULL DEFAULT '{}',
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    last_run_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE (campaign_id, scope_key)
+                );
+                CREATE INDEX IF NOT EXISTS idx_scopes_campaign ON memory_scopes(campaign_id, enabled);
+                CREATE INDEX IF NOT EXISTS idx_candidates_scope ON bridge_candidates(campaign_id, scope_key, status);
+            `);
+        },
+    },
 ];
 
 export function ensureDir(directory) {

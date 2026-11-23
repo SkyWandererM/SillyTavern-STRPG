@@ -197,6 +197,9 @@ const npcs = [
         teaching: [
             { skillKey: 'quick_slash', tuition: { gold: 40, items: [] }, relationRequired: 0 },
         ],
+        barter: [
+            { key: 'blade_for_wolves', label: 'Take the blade now, clear the wolves later', itemKey: 'iron_sword', questKey: 'wolf_hunt', relationDelta: 1 },
+        ],
         questsOffered: ['wolf_hunt'],
         joinable: true,
         combat: {

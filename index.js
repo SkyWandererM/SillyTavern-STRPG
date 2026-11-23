@@ -154858,6 +154858,50 @@ async function performChatLine(applied = {}) {
   return message;
 }
 
+// frontend/src/scopeBridge.js
+function chatWindow(lastN = 12) {
+  const ctx = getStContext();
+  const chat = Array.isArray(ctx.chat) ? ctx.chat : [];
+  const limit = Math.max(1, Math.min(200, Number(lastN) || 12));
+  return chat.slice(-limit).map((message) => ({
+    speaker: message?.name || (message?.is_user ? ctx.name1 || "Player" : "Narrator"),
+    text: String(message?.mes ?? "")
+  })).filter((message) => message.text.trim());
+}
+async function scanScope(campaignId, scope) {
+  const ctx = getStContext();
+  if (typeof ctx.generateQuietPrompt !== "function") {
+    throw new Error("This SillyTavern build has no generateQuietPrompt; use Manual instead.");
+  }
+  const messages = chatWindow(scope.config?.source?.lastN ?? 12);
+  if (!messages.length) throw new Error("The current chat has no messages to scan.");
+  const prepared = await api(`/campaigns/${campaignId}/scopes/${scope.key}/prepare`, {
+    method: "POST",
+    body: { messages }
+  });
+  if (prepared.skipped) return prepared;
+  const reply = await ctx.generateQuietPrompt({ quietPrompt: prepared.prompt, responseLength: 1200 });
+  return api(`/campaigns/${campaignId}/scopes/${scope.key}/scan`, {
+    method: "POST",
+    body: { raw: reply, source: "llm", messageCount: messages.length }
+  });
+}
+async function manualIngest(campaignId, scope, text) {
+  const trimmed = String(text ?? "").trim();
+  if (!trimmed) throw new Error("Nothing to ingest.");
+  const startsAsJson = trimmed.startsWith("{") || trimmed.startsWith("[");
+  return api(`/campaigns/${campaignId}/scopes/${scope.key}/scan`, {
+    method: "POST",
+    body: startsAsJson ? { raw: trimmed, source: "manual" } : { note: trimmed, source: "manual" }
+  });
+}
+var SCOPE_MANUAL_HINTS = {
+  narrative: '{"items":[{"npcKey":"elder_mira","fields":{"mood":"warm","summary":"She finally trusts you."}}]}',
+  relation: '{"items":[{"npcKey":"elder_mira","delta":1,"reason":"Returned the sigil"}]}',
+  flag: '{"items":[{"flag":"shrine_cleared"}]}',
+  performance: '{"items":[{"npcKey":"elder_mira","text":"She studies you for a long moment."}]}'
+};
+
 // frontend/src/trackerBridge.js
 var PUSH_FLAG = "strpg.trackerPush";
 var NARRATIVE_WHITELIST = [
@@ -154967,6 +155011,7 @@ function IntegrationsPanel({ campaignId, notify }) {
   const [memoryOpen, setMemoryOpen] = (0, import_react19.useState)(false);
   const [bridge, setBridge] = (0, import_react19.useState)(null);
   const [signalName, setSignalName] = (0, import_react19.useState)("");
+  const [scopes, setScopes] = (0, import_react19.useState)([]);
   const [candidates, setCandidates] = (0, import_react19.useState)([]);
   const [pushOn, setPushOn] = (0, import_react19.useState)(() => isPushEnabled());
   const [trackerReady, setTrackerReady] = (0, import_react19.useState)(() => trackerAvailable());
@@ -154987,9 +155032,13 @@ function IntegrationsPanel({ campaignId, notify }) {
   const refreshBridge = async () => {
     if (!campaignId) return;
     try {
-      const data = await loadBridge(campaignId);
+      const [data, scopeData] = await Promise.all([
+        loadBridge(campaignId),
+        api(`/campaigns/${campaignId}/scopes`)
+      ]);
       setBridge(data.status);
       setCandidates(data.candidates.candidates ?? []);
+      setScopes(scopeData.scopes ?? []);
       setTrackerReady(trackerAvailable());
     } catch (err) {
       notify(`Bridge status failed: ${err.message}`, "danger");
@@ -154998,6 +155047,54 @@ function IntegrationsPanel({ campaignId, notify }) {
   (0, import_react19.useEffect)(() => {
     refreshBridge();
   }, [campaignId]);
+  const addStarterScopes = async () => {
+    if (!campaignId) return;
+    setBusy(true);
+    try {
+      const result = await api(`/campaigns/${campaignId}/scopes/defaults`, { method: "POST", body: {} });
+      setScopes(result.scopes ?? []);
+      notify(`Starter scopes ready (${(result.scopes ?? []).length}).`, "success");
+    } catch (err) {
+      notify(err.message, "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const runScope = async (scope) => {
+    if (!campaignId) return;
+    setBusy(true);
+    try {
+      const result = await scanScope(campaignId, scope);
+      if (result.skipped) {
+        notify(`Scope skipped: ${result.reason}`, "warning");
+      } else {
+        notify(`Scope '${scope.key}': ${result.queued} queued${result.duplicates ? `, ${result.duplicates} duplicate` : ""}${result.skipped?.length ? `, ${result.skipped.length} skipped` : ""}.`, result.queued ? "success" : "info");
+      }
+      await refreshBridge();
+    } catch (err) {
+      notify(err.message, "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const manualScope = async (scope) => {
+    if (!campaignId) return;
+    const hint = SCOPE_MANUAL_HINTS[scope.config?.extract?.kind] ?? "";
+    const text = globalThis.prompt?.(`Manual ingest for '${scope.key}'
+\u4F60\u53EF\u4EE5\u76F4\u63A5\u5199\u4E00\u53E5\u6458\u8981\uFF0C\u6216\u7C98\u8D34 JSON\uFF1A
+${hint}`, "");
+    if (!text) return;
+    setBusy(true);
+    try {
+      const result = await manualIngest(campaignId, scope, text);
+      notify(`Manual ingest: ${result.queued} queued${result.duplicates ? `, ${result.duplicates} duplicate` : ""}${result.skipped?.length ? `, ${result.skipped.length} skipped` : ""}.`, result.queued ? "success" : "warning");
+      await refreshBridge();
+    } catch (err) {
+      notify(err.message, "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
   const pullTracker = async () => {
     if (!campaignId) return;
     setBusy(true);
@@ -155314,6 +155411,45 @@ function IntegrationsPanel({ campaignId, notify }) {
         ] }, candidate.id);
       }) }) : /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Empty, { title: "No pending candidates", icon: "\u25C7" })
     ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("section", { className: "strpg-panel", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
+        SectionTitle,
+        {
+          eyebrow: "M3 \xB7 MEMORY SCOPES",
+          title: "Chat memory scopes",
+          description: "Define what to extract from a chat window. The server builds the prompt, the extension runs it, and every item lands in the review queue. Manual mode works without a model.",
+          actions: /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: "strpg-row", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { size: "sm", onClick: refreshBridge, disabled: busy, children: "Refresh" }),
+            /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { size: "sm", variant: "ghost", onClick: addStarterScopes, disabled: !campaignId || busy, children: "Add starter scopes" })
+          ] })
+        }
+      ),
+      scopes.length ? /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("div", { className: "strpg-form", children: scopes.map((scope) => /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: "strpg-item-card", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: "strpg-item-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("div", { className: "strpg-item-icon", children: "\u25C7" }),
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("strong", { children: scope.name }),
+            /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("span", { children: [
+              scope.key,
+              " \xB7 ",
+              scope.config?.extract?.kind ?? "narrative",
+              " \xB7 last ",
+              scope.config?.source?.lastN ?? 12,
+              " messages"
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Badge, { tone: scope.enabled ? "success" : "info", children: scope.enabled ? "enabled" : "paused" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("p", { className: "strpg-muted", children: [
+          "Last run: ",
+          scope.lastRunAt ? new Date(scope.lastRunAt).toLocaleString() : "never"
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: "strpg-row end", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { variant: "gold", onClick: () => runScope(scope), disabled: busy, children: "Scan chat (LLM)" }),
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Button, { onClick: () => manualScope(scope), disabled: busy, children: "Manual\u2026" })
+        ] })
+      ] }, scope.key)) }) : /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Empty, { title: "No scopes yet", icon: "\u25C7", children: "Add starter scopes to begin." })
+    ] }),
     memoryOpen && /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
       Modal,
       {
@@ -155346,6 +155482,10 @@ function describeCandidate(candidate) {
   }
   if (candidate.kind === "narrative") {
     return Object.entries(candidate.payload?.fields ?? {}).map(([key, value]) => `${key}: ${value}`).join("  \xB7  ").slice(0, 400);
+  }
+  if (candidate.kind === "barter") {
+    const payload = candidate.payload ?? {};
+    return `${payload.itemName ?? payload.itemKey} now \u2014 repay by: ${payload.questKey} (relation +${payload.relationDelta ?? 0}, quest ${payload.questStatus})`;
   }
   if (candidate.kind === "trade") {
     const payload = candidate.payload ?? {};
@@ -156199,7 +156339,8 @@ function App() {
         "strpg_propose_recruit",
         "strpg_propose_tuition",
         "strpg_propose_recovery",
-        "strpg_receive_signal"
+        "strpg_receive_signal",
+        "strpg_propose_barter"
       ]);
       if (!allowed.has(call.tool)) {
         notify(`Disallowed tool call: ${call.tool}`, "warning");
@@ -156218,6 +156359,8 @@ function App() {
           setTab("combat");
         } else if (call.tool === "strpg_propose_relation") {
           notify("Relationship proposal queued for review. Open Integrations -> Bridge to approve it.", "gold");
+        } else if (call.tool === "strpg_propose_barter") {
+          notify("Barter proposal queued: approve to take the item and start the service quest.", "gold");
         } else if (call.tool === "strpg_receive_signal") {
           const released = result.result?.released?.length ?? 0;
           notify(`Favour signal recorded. ${released} proposal(s) released.`, "success");
@@ -156283,6 +156426,7 @@ function App() {
         '<strpg>{"tool":"strpg_propose_recovery","args":{"npcKey":"npc_key"}}</strpg>',
         "When a non-cash cost is actually fulfilled in the scene (a favour done, a promise kept), send the matching receipt:",
         '<strpg>{"tool":"strpg_receive_signal","args":{"name":"favour_signal","note":"what the player did"}}</strpg>',
+        '<strpg>{"tool":"strpg_propose_barter","args":{"npcKey":"npc_key","itemKey":"item_key"}}</strpg>',
         "A proposal is not an action. The player must confirm; never claim the move or combat already happened before STRPG confirms it.",
         "Do not output SQL, code, or tool calls for direct stat changes."
       ].join("\n");
