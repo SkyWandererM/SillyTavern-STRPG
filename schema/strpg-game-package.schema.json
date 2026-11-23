@@ -1,0 +1,544 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://strpg.local/schema/strpg-game-package.schema.json",
+  "title": "STRPG Game Package",
+  "description": "Portable, versioned game content consumed by the STRPG Engine. Runtime campaign state is never stored in this document.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema", "schemaVersion", "meta", "world", "locations", "classes", "story", "rules"],
+  "properties": {
+    "schema": { "const": "strpg.game-package" },
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "meta": {
+      "type": "object",
+      "required": ["id", "name", "version"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "title": { "type": "string" },
+        "version": { "type": "string" },
+        "author": { "type": "string" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string" }
+      }
+    },
+    "world": { "$ref": "#/$defs/world" },
+    "locations": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/location" } },
+    "events": { "type": "array", "items": { "$ref": "#/$defs/event" } },
+    "classes": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/class" } },
+    "npcs": { "type": "array", "items": { "$ref": "#/$defs/npc" } },
+    "monsters": { "type": "array", "items": { "$ref": "#/$defs/monster" } },
+    "items": { "type": "array", "items": { "$ref": "#/$defs/item" } },
+    "skills": { "type": "array", "items": { "$ref": "#/$defs/skill" } },
+    "effects": { "type": "array", "items": { "$ref": "#/$defs/statusEffect" } },
+    "quests": { "type": "array", "items": { "$ref": "#/$defs/quest" } },
+    "story": { "$ref": "#/$defs/story" },
+    "rules": { "$ref": "#/$defs/rules" },
+    "start": {
+      "type": "object",
+      "properties": {
+        "locationKey": { "type": "string" },
+        "storyNodeKey": { "type": "string" }
+      }
+    },
+    "integrations": { "type": "object", "additionalProperties": true }
+  },
+  "$defs": {
+    "condition": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "all": { "type": "array", "items": { "$ref": "#/$defs/condition" } },
+        "any": { "type": "array", "items": { "$ref": "#/$defs/condition" } },
+        "not": { "$ref": "#/$defs/condition" },
+        "flag": { "type": "string" },
+        "questKey": { "type": "string" },
+        "questStatus": { "enum": ["available", "active", "ready_to_turn_in", "completed", "turned_in", "failed"] },
+        "itemKey": { "type": "string" },
+        "itemCount": { "type": "number" },
+        "level": { "type": "number" },
+        "locationKey": { "type": "string" },
+        "variable": {
+          "type": "object",
+          "properties": {
+            "key": { "type": "string" },
+            "op": { "enum": ["eq", "neq", "gte", "lte", "gt", "lt"] },
+            "value": {}
+          }
+        },
+        "storyNodeKey": { "type": "string" }
+      }
+    },
+    "action": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": true,
+      "properties": {
+        "type": { "type": "string" },
+        "key": { "type": "string" },
+        "value": {},
+        "amount": { "type": "number" },
+        "questKey": { "type": "string" },
+        "itemKey": { "type": "string" },
+        "skillKey": { "type": "string" },
+        "locationKey": { "type": "string" },
+        "flag": { "type": "string" },
+        "text": { "type": "string" }
+      }
+    },
+    "world": {
+      "type": "object",
+      "required": ["key", "name", "startLocationKey"],
+      "additionalProperties": true,
+      "properties": {
+        "key": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "startLocationKey": { "type": "string" },
+        "mapImage": { "type": ["string", "null"] },
+        "lore": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "location": {
+      "type": "object",
+      "required": ["key", "name", "type", "connections"],
+      "additionalProperties": true,
+      "properties": {
+        "key": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "region": { "type": "string" },
+        "description": { "type": "string" },
+        "map": {
+          "type": "object",
+          "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+        },
+        "parentKey": { "type": ["string", "null"] },
+        "siteType": { "enum": ["indoor", "town", "wilderness", "dungeon"] },
+        "isSpawn": { "type": "boolean" },
+        "spawnPoints": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+        "image": { "type": ["string", "null"] },
+        "discoveredByDefault": { "type": "boolean" },
+        "connections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["toKey"],
+            "additionalProperties": true,
+            "properties": {
+              "toKey": { "type": "string" },
+              "travelCost": { "type": "number" },
+              "bidirectional": { "type": "boolean" },
+              "mode": { "enum": ["road", "trail", "walk", "door", "stairs", "gate", "portal", "secret"] },
+              "entryKey": { "type": ["string", "null"] },
+              "condition": { "$ref": "#/$defs/condition" },
+              "label": { "type": "string" }
+            }
+          }
+        },
+        "eventKeys": { "type": "array", "items": { "type": "string" } },
+        "randomEncounter": { "type": "object", "additionalProperties": true },
+        "events": { "type": "array", "items": { "$ref": "#/$defs/action" } },
+        "encounters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["key", "monsters"],
+            "properties": {
+              "key": { "type": "string" },
+              "name": { "type": "string" },
+              "description": { "type": "string" },
+              "monsters": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["monsterKey", "count"],
+                  "properties": {
+                    "monsterKey": { "type": "string" },
+                    "count": { "type": "integer", "minimum": 1, "maximum": 8 }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "mapRegions": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+      }
+    },
+    "event": {
+      "type": "object",
+      "required": ["key", "name", "scope", "trigger", "actions"],
+      "additionalProperties": true,
+      "properties": {
+        "key": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "scope": { "enum": ["world", "scene", "story"] },
+        "sceneKey": { "type": ["string", "null"] },
+        "trigger": { "enum": ["enter", "interact", "flag", "quest", "combat_victory", "manual"] },
+        "targetKey": { "type": ["string", "null"] },
+        "priority": { "type": "integer" },
+        "once": { "type": "boolean" },
+        "condition": { "$ref": "#/$defs/condition" },
+        "actions": { "type": "array", "items": { "$ref": "#/$defs/action" } },
+        "tags": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "npc": {
+      "type": "object",
+      "required": ["key", "name", "locationKey", "interactions"],
+      "additionalProperties": true,
+      "properties": {
+        "key": { "type": "string" },
+        "name": { "type": "string" },
+        "kind": { "const": "npc" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "personality": { "type": "string" },
+        "motivation": { "type": "string" },
+        "locationKey": { "type": "string" },
+        "portrait": { "type": ["string", "null"] },
+        "interactions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["key", "label", "type"],
+            "additionalProperties": true,
+            "properties": {
+              "key": { "type": "string" },
+              "label": { "type": "string" },
+              "type": { "enum": ["talk", "shop", "accept_quest", "turn_in_quest", "join_party", "heal", "story", "custom"] },
+              "description": { "type": "string" },
+              "condition": { "$ref": "#/$defs/condition" },
+              "questKey": { "type": "string" },
+              "dialogue": { "type": "array", "items": { "type": "string" } },
+              "actions": { "type": "array", "items": { "$ref": "#/$defs/action" } }
+            }
+          }
+        },
+        "shop": {
+          "type": ["object", "null"],
+          "properties": {
+            "buyRate": { "type": "number" },
+            "sellRate": { "type": "number" },
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["itemKey"],
+                "properties": {
+                  "itemKey": { "type": "string" },
+                  "price": { "type": "number" },
+                  "stock": { "type": ["number", "null"] }
+                }
+              }
+            }
+          }
+        },
+        "questsOffered": { "type": "array", "items": { "type": "string" } },
+        "important": { "type": "boolean" },
+        "tavern": { "type": "object", "additionalProperties": true },
+        "joinable": { "type": "boolean" },
+        "joinCondition": { "$ref": "#/$defs/condition" },
+        "combat": {
+          "type": "object",
+          "properties": {
+            "stats": { "type": "object", "additionalProperties": { "type": "number" } },
+            "skills": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "relations": { "type": "object", "additionalProperties": { "type": "number" } }
+      }
+    },
+    "monster": {
+      "type": "object",
+      "required": ["key", "name", "level", "stats", "exp", "gold"],
+      "additionalProperties": true,
+      "properties": {
+        "key": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "level": { "type": "integer", "minimum": 1 },
+        "stats": { "type": "object", "additionalProperties": { "type": "number" } },
+        "skills": { "type": "array", "items": { "type": "string" } },
+        "resistances": { "type": "object", "additionalProperties": { "type": "number" } },
+        "exp": { "type": "integer", "minimum": 0 },
+        "gold": { "type": "integer", "minimum": 0 },
+        "drops": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["itemKey", "chance"],
+            "properties": {
+              "itemKey": { "type": "string" },
+              "chance": { "type": "number", "minimum": 0, "maximum": 1 },
+              "min": { "type": "integer", "minimum": 1 },
+              "max": { "type": "integer", "minimum": 1 }
+            }
+          }
+        },
+        "ai": { "enum": ["aggressive", "defensive", "random"] },
+        "tags": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "item": {
+      "type": "object",
+      "required": ["key", "name", "kind", "price"],
+      "additionalProperties": true,
+      "properties": {
+        "key": { "type": "string" },
+        "name": { "type": "string" },
+        "kind": { "enum": ["weapon", "armor", "accessory", "consumable", "quest", "material"] },
+        "description": { "type": "string" },
+        "rarity": { "enum": ["common", "uncommon", "rare", "epic", "legendary"] },
+        "price": { "type": "integer", "minimum": 0 },
+        "stackable": { "type": "boolean" },
+        "maxStack": { "type": "integer", "minimum": 1 },
+        "slot": { "type": ["string", "null"], "enum": ["weapon", "armor", "accessory", null] },
+        "stats": { "type": "object", "additionalProperties": { "type": "number" } },
+        "effects": { "type": "object", "additionalProperties": true },
+        "classRestrictions": { "type": "array", "items": { "type": "string" } },
+        "consumable": {
+          "type": "object",
+          "properties": {
+            "healHp": { "type": "number" },
+            "healMp": { "type": "number" },
+            "cure": { "type": "array", "items": { "type": "string" } },
+            "buff": { "type": "object", "additionalProperties": true }
+          }
+        },
+        "tags": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "skill": {
+      "type": "object",
+      "required": ["key", "name", "category", "type", "target"],
+      "additionalProperties": true,
+      "properties": {
+        "key": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "enum": ["active", "passive"] },
+        "type": { "enum": ["attack", "heal", "buff", "debuff", "status", "utility"] },
+        "description": { "type": "string" },
+        "mpCost": { "type": "integer", "minimum": 0 },
+        "cooldown": { "type": "integer", "minimum": 0 },
+        "target": { "enum": ["single", "all_enemies", "self", "ally", "all_allies"] },
+        "element": { "enum": ["physical", "fire", "ice", "lightning", "holy", "dark", "none"] },
+        "power": { "type": "number" },
+        "formula": { "type": "string" },
+        "effects": { "type": "object", "additionalProperties": true },
+        "unlockLevel": { "type": "integer", "minimum": 1 },
+        "classes": { "type": "array", "items": { "type": "string" } },
+        "passive": {
+          "type": "object",
+          "properties": {
+            "modifiers": { "type": "object", "additionalProperties": { "type": "number" } }
+          }
+        }
+      }
+    },
+    "statusEffect": {
+      "type": "object",
+      "required": ["key", "name", "kind"],
+      "additionalProperties": true,
+      "properties": {
+        "key": { "type": "string" },
+        "name": { "type": "string" },
+        "kind": { "enum": ["buff", "debuff", "dot", "control"] },
+        "description": { "type": "string" },
+        "duration": { "type": "integer", "minimum": 1 },
+        "modifiers": { "type": "object", "additionalProperties": { "type": "number" } },
+        "tick": {
+          "type": "object",
+          "properties": {
+            "type": { "enum": ["damage_percent", "heal_percent", "none"] },
+            "value": { "type": "number" }
+          }
+        },
+        "skipTurn": { "type": "boolean" }
+      }
+    },
+    "quest": {
+      "type": "object",
+      "required": ["key", "name", "type", "stages", "rewards"],
+      "additionalProperties": true,
+      "properties": {
+        "key": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "enum": ["main", "side", "hidden"] },
+        "description": { "type": "string" },
+        "level": { "type": "integer", "minimum": 1 },
+        "prerequisites": { "type": "array", "items": { "type": "string" } },
+        "start": {
+          "type": "object",
+          "properties": {
+            "type": { "enum": ["npc", "location", "story", "auto"] },
+            "npcKey": { "type": "string" },
+            "locationKey": { "type": "string" },
+            "storyNodeKey": { "type": "string" }
+          }
+        },
+        "turnIn": {
+          "type": ["object", "null"],
+          "properties": { "npcKey": { "type": "string" } }
+        },
+        "completion": { "enum": ["auto", "turn_in"] },
+        "stages": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["key", "name", "objectives"],
+            "properties": {
+              "key": { "type": "string" },
+              "name": { "type": "string" },
+              "description": { "type": "string" },
+              "mode": { "enum": ["all", "any"] },
+              "objectives": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "required": ["key", "type", "count"],
+                  "properties": {
+                    "key": { "type": "string" },
+                    "type": { "enum": ["kill", "collect", "talk", "visit", "flag", "level", "combat_win"] },
+                    "targetKey": { "type": "string" },
+                    "count": { "type": "integer", "minimum": 1 },
+                    "label": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "rewards": {
+          "type": "object",
+          "properties": {
+            "exp": { "type": "integer", "minimum": 0 },
+            "gold": { "type": "integer", "minimum": 0 },
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["itemKey", "quantity"],
+                "properties": { "itemKey": { "type": "string" }, "quantity": { "type": "integer", "minimum": 1 } }
+              }
+            },
+            "skills": { "type": "array", "items": { "type": "string" } },
+            "flags": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "failure": { "type": ["object", "null"], "additionalProperties": true },
+        "nodes": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+        "edges": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+      }
+    },
+    "story": {
+      "type": "object",
+      "required": ["key", "name", "startNodeKey", "endings", "nodes", "edges"],
+      "additionalProperties": true,
+      "properties": {
+        "key": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "startNodeKey": { "type": "string" },
+        "endings": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "variables": { "type": "object", "additionalProperties": true },
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["key", "title", "type"],
+            "additionalProperties": true,
+            "properties": {
+              "key": { "type": "string" },
+              "title": { "type": "string" },
+              "type": { "enum": ["scene", "branch", "event", "ending"] },
+              "sceneKey": { "type": "string" },
+              "text": { "type": "string" },
+              "conditions": { "$ref": "#/$defs/condition" },
+              "actions": { "type": "array", "items": { "$ref": "#/$defs/action" } },
+              "map": {
+                "type": "object",
+                "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+              }
+            }
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["key", "from", "to"],
+            "additionalProperties": true,
+            "properties": {
+              "key": { "type": "string" },
+              "from": { "type": "string" },
+              "to": { "type": "string" },
+              "label": { "type": "string" },
+              "condition": { "$ref": "#/$defs/condition" },
+              "actions": { "type": "array", "items": { "$ref": "#/$defs/action" } },
+              "manual": { "type": "boolean" },
+              "priority": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+    "class": {
+      "type": "object",
+      "required": ["key", "name", "baseStats", "growth"],
+      "additionalProperties": true,
+      "properties": {
+        "key": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "baseStats": { "type": "object", "additionalProperties": { "type": "number" } },
+        "growth": { "type": "object", "additionalProperties": { "type": "number" } },
+        "startingItems": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["itemKey"],
+            "properties": { "itemKey": { "type": "string" }, "quantity": { "type": "integer", "minimum": 1 } }
+          }
+        },
+        "startingSkills": { "type": "array", "items": { "type": "string" } },
+        "skillTree": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": { "level": { "type": "integer" }, "skillKey": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "rules": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "levelCap": { "type": "integer", "minimum": 2 },
+        "startingGold": { "type": "integer", "minimum": 0 },
+        "statCaps": { "type": "object", "additionalProperties": { "type": "number" } },
+        "formulas": { "type": "object", "additionalProperties": { "type": "string" } },
+        "expTable": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": { "level": { "type": "integer" }, "exp": { "type": "integer" } }
+          }
+        },
+        "enemyScaling": {
+          "type": "object",
+          "properties": { "hp": { "type": "number" }, "atk": { "type": "number" } }
+        },
+        "saveEveryCombatAction": { "type": "boolean" }
+      }
+    }
+  }
+}
+

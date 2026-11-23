@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+plugin/node_modules/
+
+# Build output
+dist/
+*.zip
+
+# Local runtime data
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Logs and editor noise
+*.log
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

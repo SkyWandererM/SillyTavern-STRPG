@@ -1,0 +1,23 @@
+{
+  "name": "strpg-server",
+  "version": "1.3.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "description": "STRPG server plugin for SillyTavern: SQLite persistence, JRPG rules engine and Studio content pipeline",
+  "bin": {
+    "strpg": "bin/strpg-cli.js"
+  },
+  "scripts": {
+    "migrate": "node bin/strpg-cli.js migrate",
+    "seed": "node bin/strpg-cli.js seed",
+    "verify": "node bin/strpg-cli.js verify",
+    "backup": "node bin/strpg-cli.js backup"
+  },
+  "dependencies": {
+    "zod": "^3.24.2"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "kind": "rules",
+  "asset": {
+    "key": "moonlit_rules", "name": "Moonlit Rules", "levelCap": 20, "startingGold": 20,
+    "statCaps": { "maxHp": 9999, "maxMp": 999 }, "formulas": {}, "expTable": [],
+    "enemyScaling": { "hp": 1, "atk": 1 }, "saveEveryCombatAction": true
+  }
+}

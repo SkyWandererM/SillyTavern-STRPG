@@ -1,0 +1,315 @@
+{
+  "base": "http://127.0.0.1:8124",
+  "startedAt": "2026-11-22T13:24:27.177Z",
+  "steps": [
+    {
+      "name": "STRPG plugin health",
+      "at": "2026-11-22T13:24:27.247Z",
+      "detail": {
+        "schemaVersion": 2,
+        "database": "C:\\Users\\backa\\AppData\\Local\\Temp\\strpg-acceptance-e2d9ef5e\\strpg-data\\strpg.sqlite"
+      }
+    },
+    {
+      "name": "Published game available",
+      "at": "2026-11-22T13:24:27.252Z",
+      "detail": {
+        "versionId": "ver_00aadc42-3f90-4e48-a6a6-68480d8502c0",
+        "name": "Emberfall Frontier: Example JRPG"
+      }
+    },
+    {
+      "name": "Imported Game Package into a new Studio project",
+      "at": "2026-11-22T13:24:27.342Z",
+      "detail": {
+        "projectId": "prj_2f1ba2f4-3b6a-4f07-92ec-225c634762f3",
+        "assets": 31,
+        "allDraft": true
+      }
+    },
+    {
+      "name": "Validated, reviewed and published all imported assets",
+      "at": "2026-11-22T13:24:27.921Z",
+      "detail": {
+        "count": 31,
+        "statuses": [
+          "DRAFT",
+          "VALIDATION",
+          "REVIEWED",
+          "PUBLISHED"
+        ]
+      }
+    },
+    {
+      "name": "Assembled and published Game Version",
+      "at": "2026-11-22T13:24:27.946Z",
+      "detail": {
+        "versionId": "ver_8015b00a-d0de-448c-b1bd-d85a1fc3b94e",
+        "version": 1,
+        "report": {
+          "locations": 4,
+          "npcs": 3,
+          "monsters": 2,
+          "items": 8,
+          "skills": 5,
+          "quests": 3,
+          "events": 1,
+          "storyNodes": 6,
+          "storyEdges": 7,
+          "classes": 1,
+          "endings": 1,
+          "reachableLocations": 4,
+          "reachableStoryNodes": 6
+        }
+      }
+    },
+    {
+      "name": "Created Campaign from frozen game version",
+      "at": "2026-11-22T13:24:27.972Z",
+      "detail": {
+        "campaignId": "cmp_06f232fa-9163-462e-a030-78a39301aa35",
+        "player": "Aria",
+        "location": "mistfall_town"
+      }
+    },
+    {
+      "name": "Bound SillyTavern chat A",
+      "at": "2026-11-22T13:24:27.991Z",
+      "detail": {
+        "chatKey": "acceptance/cmp_06f232fa-9163-462e-a030-78a39301aa35/chat-a"
+      }
+    },
+    {
+      "name": "Entered starting location",
+      "at": "2026-11-22T13:24:28.008Z",
+      "detail": {
+        "location": "mistfall_town",
+        "hp": 120,
+        "mp": 40
+      }
+    },
+    {
+      "name": "Talked to NPC and accepted main quest",
+      "at": "2026-11-22T13:24:28.058Z",
+      "detail": {
+        "npc": "elder_mira",
+        "quest": "main_sigil"
+      }
+    },
+    {
+      "name": "Moved to forest via real location connection",
+      "at": "2026-11-22T13:24:28.075Z",
+      "detail": {
+        "location": "greenwood_edge"
+      }
+    },
+    {
+      "name": "Discovered enemy and created pending encounter",
+      "at": "2026-11-22T13:24:28.089Z",
+      "detail": {
+        "combatId": "cmb_c3410489-f283-44c5-bc19-ca14584c1a52",
+        "participants": 3
+      }
+    },
+    {
+      "name": "Entered independent combat UI state",
+      "at": "2026-11-22T13:24:28.107Z",
+      "detail": {
+        "combatId": "cmb_c3410489-f283-44c5-bc19-ca14584c1a52",
+        "round": 1,
+        "currentActor": "Aria"
+      }
+    },
+    {
+      "name": "Executed complete turn-based combat and settlement",
+      "at": "2026-11-22T13:24:28.198Z",
+      "detail": {
+        "outcome": "victory",
+        "exp": 70,
+        "gold": 36,
+        "drops": 2,
+        "rounds": 4
+      }
+    },
+    {
+      "name": "Automatically applied EXP, gold, drops, levels and skills",
+      "at": "2026-11-22T13:24:28.211Z",
+      "detail": {
+        "level": 2,
+        "xp": 50,
+        "gold": 116
+      }
+    },
+    {
+      "name": "Quest objective advanced from combat",
+      "at": "2026-11-22T13:24:28.217Z",
+      "detail": {
+        "quest": "main_sigil",
+        "stage": "report",
+        "objectives": [
+          [
+            "reach_edge",
+            1
+          ],
+          [
+            "kill_goblins",
+            2
+          ]
+        ]
+      }
+    },
+    {
+      "name": "Turned in quest at the correct NPC and claimed rewards",
+      "at": "2026-11-22T13:24:28.283Z",
+      "detail": {
+        "quest": "main_sigil",
+        "rewards": {
+          "experience": {
+            "entityId": "ent_b46119b0-653e-4eb9-b57e-ed7c141fcd35",
+            "gainedExp": 120,
+            "level": 4,
+            "xp": 1,
+            "levelsGained": [
+              3,
+              4
+            ],
+            "skillsUnlocked": [
+              "quick_slash"
+            ],
+            "hp": 174,
+            "mp": 58,
+            "source": "quest:main_sigil"
+          },
+          "gold": 100,
+          "items": [
+            {
+              "itemKey": "moonstone_charm",
+              "quantity": 1
+            }
+          ],
+          "skills": [],
+          "flags": [
+            "sigil_restored"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Reached a real Story Graph ending through gameplay",
+      "at": "2026-11-22T13:24:28.290Z",
+      "detail": {
+        "ending": "ending_ember",
+        "title": "Ember Everlasting"
+      }
+    },
+    {
+      "name": "Saved game snapshot",
+      "at": "2026-11-22T13:24:28.309Z",
+      "detail": {
+        "saveId": "save_7ce594ca-6181-4aa5-a3ae-2a720b83016e",
+        "signature": {
+          "level": 4,
+          "hp": 174,
+          "gold": 216,
+          "location": "mistfall_town",
+          "ending": "ending_ember"
+        }
+      }
+    },
+    {
+      "name": "Bound alternate chat to the same Campaign",
+      "at": "2026-11-22T13:24:28.322Z",
+      "detail": {
+        "chatKey": "acceptance/cmp_06f232fa-9163-462e-a030-78a39301aa35/chat-b"
+      }
+    },
+    {
+      "name": "Restored Campaign from snapshot after switching chat",
+      "at": "2026-11-22T13:24:28.363Z",
+      "detail": {
+        "restored": {
+          "level": 4,
+          "hp": 174,
+          "gold": 216,
+          "location": "mistfall_town",
+          "ending": "ending_ember"
+        }
+      }
+    },
+    {
+      "name": "Synced whitelist-only narrative state",
+      "at": "2026-11-22T13:24:28.375Z",
+      "detail": {
+        "tracker": "rpg-tracker",
+        "authoritative": "STRPG Core"
+      }
+    },
+    {
+      "name": "Exported Memory Books continuity summary",
+      "at": "2026-11-22T13:24:28.387Z",
+      "detail": {
+        "mode": "explicit-side-prompt-export",
+        "length": 2382
+      }
+    },
+    {
+      "name": "Verified event log and idempotent settlement trail",
+      "at": "2026-11-22T13:24:28.396Z",
+      "detail": {
+        "events": 33,
+        "types": [
+          "item.equipped",
+          "story.entered",
+          "campaign.created",
+          "npc.interaction",
+          "quest.accepted",
+          "quest.objective",
+          "player.moved",
+          "combat.proposed",
+          "combat.started",
+          "combat.action",
+          "entity.level_up",
+          "quest.stage",
+          "combat.victory",
+          "quest.completed",
+          "quest.turned_in",
+          "story.ending",
+          "save.restored"
+        ]
+      }
+    }
+  ],
+  "ok": true,
+  "campaignId": "cmp_06f232fa-9163-462e-a030-78a39301aa35",
+  "projectId": "prj_2f1ba2f4-3b6a-4f07-92ec-225c634762f3",
+  "versionId": "ver_8015b00a-d0de-448c-b1bd-d85a1fc3b94e",
+  "artifacts": {
+    "signature": {
+      "level": 4,
+      "hp": 174,
+      "gold": 216,
+      "location": "mistfall_town",
+      "ending": "ending_ember"
+    },
+    "eventTypes": [
+      "item.equipped",
+      "story.entered",
+      "campaign.created",
+      "npc.interaction",
+      "quest.accepted",
+      "quest.objective",
+      "player.moved",
+      "combat.proposed",
+      "combat.started",
+      "combat.action",
+      "entity.level_up",
+      "quest.stage",
+      "combat.victory",
+      "quest.completed",
+      "quest.turned_in",
+      "story.ending",
+      "save.restored"
+    ]
+  },
+  "finishedAt": "2026-11-22T13:24:28.396Z"
+}

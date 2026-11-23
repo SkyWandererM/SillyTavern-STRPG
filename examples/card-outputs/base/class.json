@@ -1,0 +1,11 @@
+{
+  "kind": "class",
+  "asset": {
+    "key": "adventurer", "name": "Moonlit Adventurer", "description": "An adventurer who carries the Moonlit Dagger.",
+    "baseStats": { "maxHp": 100, "maxMp": 30, "str": 12, "agi": 12, "int": 8, "vit": 10, "luck": 8 },
+    "growth": { "maxHp": 15, "maxMp": 5, "str": 2, "agi": 1.8, "int": 1.2, "vit": 1.6, "luck": 1 },
+    "startingItems": [{ "itemKey": "moonlit_dagger", "quantity": 1 }],
+    "startingSkills": ["moon_slash"],
+    "skillTree": []
+  }
+}

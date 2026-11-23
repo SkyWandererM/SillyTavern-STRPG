@@ -1,0 +1,18 @@
+{
+  "kind": "equipment",
+  "asset": {
+    "key": "moonlit_dagger",
+    "name": "Moonlit Dagger",
+    "kind": "weapon",
+    "description": "Faint moon-white patterns flow along the blade. Built for quick strikes.",
+    "rarity": "uncommon",
+    "price": 160,
+    "stackable": false,
+    "maxStack": 1,
+    "slot": "weapon",
+    "stats": { "atk": 5, "agi": 1, "crit": 3 },
+    "effects": {},
+    "classRestrictions": ["adventurer"],
+    "tags": ["dagger", "moonlight"]
+  }
+}

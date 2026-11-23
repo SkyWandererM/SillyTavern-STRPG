@@ -1,0 +1,18 @@
+{
+  "kind": "story",
+  "asset": {
+    "key": "moonlit_vow",
+    "name": "The Moonlit Vow",
+    "description": "Find the forgotten relic in the Moonlit Glade and make the stele remember its warden.",
+    "startNodeKey": "arrival",
+    "endings": ["ending_moon"],
+    "variables": { "relic_found": false },
+    "nodes": [
+      { "key": "arrival", "title": "Moonlit Glade", "type": "scene", "sceneKey": "moonlit_glade", "text": "Moonlight falls on the stele, but its face is blank.", "map": { "x": 100, "y": 100 } },
+      { "key": "ending_moon", "title": "A Name Returns", "type": "ending", "sceneKey": "moonlit_glade", "text": "As the dagger leaves its sheath, a forgotten name rises on the stone.", "map": { "x": 420, "y": 100 } }
+    ],
+    "edges": [
+      { "key": "arrival_to_ending", "from": "arrival", "to": "ending_moon", "label": "Complete the relic quest", "condition": { "questKey": "moonlit_relic", "questStatus": "completed" } }
+    ]
+  }
+}

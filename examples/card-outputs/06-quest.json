@@ -1,0 +1,29 @@
+{
+  "kind": "quest",
+  "asset": {
+    "key": "moonlit_relic",
+    "name": "The Moonlit Relic",
+    "type": "side",
+    "description": "Archivist Sela wants to confirm whether the Moonlit Dagger is the relic recorded on the stele.",
+    "level": 1,
+    "prerequisites": [],
+    "start": { "type": "npc", "npcKey": "archivist_sela" },
+    "completion": "auto",
+    "stages": [
+      {
+        "key": "find_relic",
+        "name": "Confirm the Relic",
+        "description": "Carry the Moonlit Dagger and return to the Moonlit Glade.",
+        "objectives": [
+          { "key": "hold_dagger", "type": "collect", "targetKey": "moonlit_dagger", "count": 1, "label": "Hold the Moonlit Dagger" }
+        ]
+      }
+    ],
+    "rewards": { "exp": 15, "gold": 10, "items": [], "skills": [], "flags": ["moon_relic_verified"] },
+    "nodes": [
+      { "key": "start", "title": "Start", "type": "start" },
+      { "key": "done", "title": "Complete", "type": "end" }
+    ],
+    "edges": [{ "key": "q1", "from": "start", "to": "done" }]
+  }
+}

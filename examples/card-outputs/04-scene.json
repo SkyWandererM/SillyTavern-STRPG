@@ -1,0 +1,16 @@
+{
+  "kind": "scene",
+  "asset": {
+    "key": "moonlit_glade",
+    "name": "Moonlit Glade",
+    "type": "forest",
+    "region": "Moonlit Glade",
+    "description": "Silver moonlight falls through the canopy. A stone stele covered in names stands at the center of the clearing.",
+    "map": { "x": 260, "y": 220 },
+    "discoveredByDefault": true,
+    "connections": [],
+    "interactions": [],
+    "events": [],
+    "tags": ["moonlight", "safe"]
+  }
+}

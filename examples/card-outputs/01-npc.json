@@ -1,0 +1,22 @@
+{
+  "kind": "npc",
+  "asset": {
+    "key": "archivist_sela",
+    "name": "Archivist Sela",
+    "kind": "npc",
+    "title": "Moonlit Archivist",
+    "description": "A young archivist in a deep blue cloak, carrying a roll of glowing moonlit maps.",
+    "personality": "Cautious and curious. She records everything before she acts.",
+    "motivation": "Find the ancient records lost in the Moonlit Glade.",
+    "locationKey": "moonlit_glade",
+    "portrait": null,
+    "interactions": [
+      { "key": "talk", "label": "Ask about the Moonlit Glade", "type": "talk", "description": "", "condition": {}, "dialogue": ["The moonlight in this glade remembers every name."] },
+      { "key": "accept_relic", "label": "Accept quest: The Moonlit Relic", "type": "accept_quest", "questKey": "moonlit_relic", "condition": { "questKey": "moonlit_relic", "questStatus": "available" } }
+    ],
+    "shop": null,
+    "questsOffered": ["moonlit_relic"],
+    "joinable": false,
+    "relations": { "player": 0 }
+  }
+}

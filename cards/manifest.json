@@ -1,0 +1,89 @@
+{
+  "generatedAt": "2026-11-22T16:15:25.241Z",
+  "cards": [
+    {
+      "order": 1,
+      "id": "npc_designer",
+      "name": "STRPG Card 01 · NPC Designer",
+      "role": "NPC and Monster Designer",
+      "json": "strpg-card-01-npc-designer.json",
+      "png": "strpg-card-01-npc-designer.png",
+      "tags": [
+        "NPC",
+        "Monster"
+      ],
+      "spec": "chara_card_v2",
+      "pngBytes": 120177
+    },
+    {
+      "order": 2,
+      "id": "equipment_designer",
+      "name": "STRPG Card 02 · Equipment Designer",
+      "role": "Equipment and Item Designer",
+      "json": "strpg-card-02-equipment-designer.json",
+      "png": "strpg-card-02-equipment-designer.png",
+      "tags": [
+        "Equipment",
+        "Item"
+      ],
+      "spec": "chara_card_v2",
+      "pngBytes": 122642
+    },
+    {
+      "order": 3,
+      "id": "skill_designer",
+      "name": "STRPG Card 03 · Skill Designer",
+      "role": "Skill and Class Tree Designer",
+      "json": "strpg-card-03-skill-designer.json",
+      "png": "strpg-card-03-skill-designer.png",
+      "tags": [
+        "Skill",
+        "Class"
+      ],
+      "spec": "chara_card_v2",
+      "pngBytes": 120333
+    },
+    {
+      "order": 4,
+      "id": "scene_designer",
+      "name": "STRPG Card 04 · Scene Designer",
+      "role": "Scene and Map Node Designer",
+      "json": "strpg-card-04-scene-designer.json",
+      "png": "strpg-card-04-scene-designer.png",
+      "tags": [
+        "Scene",
+        "Map"
+      ],
+      "spec": "chara_card_v2",
+      "pngBytes": 117975
+    },
+    {
+      "order": 5,
+      "id": "story_architect",
+      "name": "STRPG Card 05 · Story Architect",
+      "role": "World and Story Architect",
+      "json": "strpg-card-05-story-architect.json",
+      "png": "strpg-card-05-story-architect.png",
+      "tags": [
+        "Story",
+        "World"
+      ],
+      "spec": "chara_card_v2",
+      "pngBytes": 117666
+    },
+    {
+      "order": 6,
+      "id": "quest_designer",
+      "name": "STRPG Card 06 · Quest Designer",
+      "role": "Quest and Quest Graph Designer",
+      "json": "strpg-card-06-quest-designer.json",
+      "png": "strpg-card-06-quest-designer.png",
+      "tags": [
+        "Quest",
+        "Objectives"
+      ],
+      "spec": "chara_card_v2",
+      "pngBytes": 125281
+    }
+  ]
+}

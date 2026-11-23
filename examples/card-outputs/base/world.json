@@ -1,0 +1,6 @@
+{
+  "kind": "world",
+  "asset": {
+    "key": "moonlit_world", "name": "Moonlit Glade", "description": "A forgotten glade bathed in moonlight.", "startLocationKey": "moonlit_glade", "lore": "The stele records names the moonlight has forgotten.", "tags": ["demo"]
+  }
+}

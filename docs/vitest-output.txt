@@ -1,0 +1,20 @@
+
+> strpg-framework@1.0.0 test
+> vitest run
+
+
+ RUN  v3.2.7 D:/SillyTavern-release/strpg
+
+ ✓ tests/campaign-flow.test.js (6 tests) 875ms
+   ✓ campaign acceptance flow > runs campaign creation, NPC quest, combat, settlement, ending, save and chat recovery  330ms
+ ✓ tests/studio.test.js (5 tests) 491ms
+ ✓ tests/integrations.test.js (5 tests) 446ms
+ ✓ tests/cards-and-package.test.js (2 tests) 251ms
+ ✓ tests/upgrades.test.js (1 test) 220ms
+ ✓ tests/schema.test.js (3 tests) 161ms
+
+ Test Files  6 passed (6)
+      Tests  22 passed (22)
+   Start at  23:05:17
+   Duration  3.65s (transform 238ms, setup 0ms, collect 938ms, tests 2.44s, environment 0ms, prepare 77ms)
+
