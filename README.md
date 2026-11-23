@@ -189,8 +189,8 @@ Deployment copies this repository's `plugin/` folder to `<SillyTavern>/plugins/s
 | Phaser 3 exploration | ✅ | Phaser canvas, layered scenes, local exits, click selection, zoom/pan |
 | Class / Rules builders | ✅ | Slider class editor, LLM-assisted Rules compiler, server-side ranges |
 | Monster respawn + random encounters | ✅ | Lazy spawn refresh, joint party/danger dice, combat settlement cooldown |
-| Automated tests | ✅ | 48 Vitest cases + 23-step end-to-end acceptance |
-| Chat ↔ RPG bridge (M1) | ✅ | Tracker pull → review → apply, incremental world book with stable ids, relation proposals, read-only mirror |
+| Automated tests | ✅ | 57 Vitest cases + 23-step end-to-end acceptance |
+| Chat ↔ RPG bridge | ✅ | M1: tracker pull → review → apply, incremental world book, relation proposals. M2: configurable recruit / tuition / recovery / haggling, defeat-triggered events |
 | Memory Books integration | ⚠️ explicit export | Generates summary / Side Prompt text; never writes its internal database |
 | Map Region Locator integration | ⚠️ JSON adapter | Calls `/show-map`; imports/exports region metadata, never writes its IndexedDB |
 | RPG Tracker integration | ⚠️ whitelist mirror | Server records narrative fields; does not write its tracker schema |
@@ -219,6 +219,7 @@ Unimplemented or partial features are marked in the UI and docs. They are not pr
 - [Changelog 1.2.1](docs/CHANGELOG-1.2.1.md)
 - [Changelog 1.3.0](docs/CHANGELOG-1.3.0.md)
 - [Changelog 1.4.0](docs/CHANGELOG-1.4.0.md)
+- [Changelog 1.5.0](docs/CHANGELOG-1.5.0.md)
 - [Class and Rules](docs/CLASS_RULES.md)
 - [Chat ↔ RPG Bridge (design)](docs/CHAT_BRIDGE.md)
 - [Acceptance](docs/ACCEPTANCE.md)

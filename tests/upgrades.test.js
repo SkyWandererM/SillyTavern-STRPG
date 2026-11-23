@@ -74,7 +74,7 @@ describe('campaign content upgrade', () => {
             const built = body(build);
             expect(built.report.valid).toBe(true);
             expect(built.report.stats.locations).toBe(5);
-            expect(built.report.stats.events).toBe(2);
+            expect(built.report.stats.events).toBe(3);
             await app.api.post(`${API}/versions/${built.id}/publish`).send({});
 
             const campaign = await createCampaign(app.api, currentVersion.id);

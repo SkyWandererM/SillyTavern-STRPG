@@ -92,6 +92,7 @@ export function IntegrationsPanel({ campaignId, notify }) {
                 notify('Candidate rejected.', 'info');
             }
             await refreshBridge();
+            globalThis.window?.dispatchEvent?.(new CustomEvent('strpg:bridge-changed'));
         } catch (err) {
             notify(err.message, 'danger');
         } finally {
@@ -321,6 +322,14 @@ export function IntegrationsPanel({ campaignId, notify }) {
     );
 }
 
+function describeCost(cost) {
+    if (!cost) return 'nothing';
+    const parts = [];
+    if (Number(cost.gold)) parts.push(`${Number(cost.gold)} gold`);
+    for (const item of cost.items ?? []) parts.push(`${item.itemKey} x${item.quantity}`);
+    return parts.join(' + ') || 'nothing';
+}
+
 function describeCandidate(candidate) {
     if (candidate.kind === 'relation') {
         return `Relation ${candidate.payload?.before ?? '?'} → ${candidate.payload?.after ?? '?'}: ${candidate.payload?.reason ?? ''}`;
@@ -330,6 +339,20 @@ function describeCandidate(candidate) {
             .map(([key, value]) => `${key}: ${value}`)
             .join('  ·  ')
             .slice(0, 400);
+    }
+    if (candidate.kind === 'trade') {
+        const payload = candidate.payload ?? {};
+        return `${payload.itemName ?? payload.itemKey} x${payload.quantity} @ ${payload.unitPrice} gold (list ${payload.unitList})${payload.countered ? ' — counter-offer' : ''}`;
+    }
+    if (candidate.kind === 'recruit') {
+        return `Recruit ${candidate.payload?.npcName ?? candidate.payload?.npcKey} for ${describeCost(candidate.payload?.cost)}`;
+    }
+    if (candidate.kind === 'tuition') {
+        return `Learn ${candidate.payload?.skillName ?? candidate.payload?.skillKey} for ${describeCost(candidate.payload?.tuition)}`;
+    }
+    if (candidate.kind === 'recovery') {
+        const payload = candidate.payload ?? {};
+        return `${payload.npcName ?? payload.npcKey}: ${payload.label ?? payload.method} — restore ${Math.round(Number(payload.restoreHp ?? 0) * 100)}% HP, relation +${payload.relationDelta ?? 0}${Number(payload.cost?.gold) ? `, ${payload.cost.gold} gold` : ''}`;
     }
     if (candidate.kind === 'flag') return `Flag: ${candidate.payload?.flag ?? ''}`;
     return JSON.stringify(candidate.payload ?? {}).slice(0, 300);

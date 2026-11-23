@@ -18,7 +18,8 @@ import { ConflictError, NotFoundError, ValidationError } from './errors.js';
 export const RELATION_MIN = -100;
 export const RELATION_MAX = 100;
 export const RELATION_MAX_STEP = 2;
-export const CANDIDATE_KINDS = ['relation', 'narrative', 'flag'];
+export const CANDIDATE_KINDS = ['relation', 'narrative', 'flag', 'trade', 'recruit', 'tuition', 'recovery'];
+const SOCIAL_KINDS = new Set(['trade', 'recruit', 'tuition', 'recovery']);
 
 function campaignRow(db, campaignId) {
     const row = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(campaignId);
@@ -354,18 +355,21 @@ function applyFlag(db, campaignId, candidate) {
  * Approve one candidate and apply it inside a transaction. This is the only write path
  * for external narrative input.
  */
-export function approveCandidate(db, campaignId, candidateId, options = {}) {
+export async function approveCandidate(db, campaignId, candidateId, options = {}) {
     campaignRow(db, campaignId);
     const row = db.prepare('SELECT * FROM bridge_candidates WHERE id = ? AND campaign_id = ?').get(candidateId, campaignId);
     if (!row) throw new NotFoundError(`Candidate '${candidateId}' not found`, 'CANDIDATE_NOT_FOUND');
     if (row.status !== 'PENDING') throw new ConflictError(`Candidate is already ${row.status}`, 'CANDIDATE_NOT_PENDING');
     const candidate = candidateView(row);
+    // Social handlers live in social.js; load them lazily so the bridge module has no cycle.
+    const social = SOCIAL_KINDS.has(candidate.kind) ? await import('./social.js') : null;
 
     const applied = withTransaction(db, () => {
         let result;
         if (candidate.kind === 'relation') result = applyRelation(db, campaignId, candidate);
         else if (candidate.kind === 'narrative') result = applyNarrative(db, campaignId, candidate);
         else if (candidate.kind === 'flag') result = applyFlag(db, campaignId, candidate);
+        else if (social) result = social.applySocialCandidate(db, campaignId, candidate);
         else throw new ValidationError(`Unsupported candidate kind '${candidate.kind}'`);
 
         db.prepare("UPDATE bridge_candidates SET status = 'APPLIED', reviewed_at = ?, applied_at = ? WHERE id = ?")

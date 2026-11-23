@@ -118,7 +118,7 @@ export const eventSchema = z.object({
     description: descriptionSchema,
     scope: z.enum(['world', 'scene', 'story']).default('scene'),
     sceneKey: z.string().nullable().optional(),
-    trigger: z.enum(['enter', 'interact', 'flag', 'quest', 'combat_victory', 'manual']).default('enter'),
+    trigger: z.enum(['enter', 'interact', 'flag', 'quest', 'combat_victory', 'combat_defeat', 'manual']).default('enter'),
     targetKey: z.string().nullable().optional(),
     priority: z.number().int().default(0),
     once: z.boolean().default(true),
@@ -159,11 +159,49 @@ export const npcSchema = z.object({
             price: z.number().int().min(0).optional(),
             stock: z.number().int().min(0).nullable().optional(),
         })).default([]),
+        haggle: z.object({
+            enabled: z.boolean().default(false),
+            maxDiscount: z.number().min(0).max(0.5).default(0.3),
+        }).optional(),
     }).nullable().optional(),
     questsOffered: z.array(z.string()).default([]),
     important: z.boolean().default(false),
     tavern: z.object({ avatar: z.string(), importedAt: z.string() }).passthrough().optional(),
     joinable: z.boolean().default(false),
+    recruit: z.object({
+        enabled: z.boolean().default(false),
+        cost: z.object({
+            gold: z.number().int().min(0).default(0),
+            items: z.array(z.object({ itemKey: z.string(), quantity: z.number().int().min(1).max(10).default(1) })).default([]),
+        }).default({ gold: 0, items: [] }),
+        relationRequired: z.number().default(0),
+        condition: conditionSchema.optional(),
+        maxParty: z.number().int().min(1).max(4).optional(),
+    }).optional(),
+    teaching: z.array(z.object({
+        skillKey: z.string(),
+        tuition: z.object({
+            gold: z.number().int().min(0).default(0),
+            items: z.array(z.object({ itemKey: z.string(), quantity: z.number().int().min(1).max(10).default(1) })).default([]),
+        }).default({ gold: 0, items: [] }),
+        relationRequired: z.number().default(0),
+        condition: conditionSchema.optional(),
+    })).default([]),
+    recovery: z.object({
+        enabled: z.boolean().default(false),
+        hpThreshold: z.number().min(0).max(1).default(0.4),
+        methods: z.array(z.object({
+            key: z.string(),
+            label: z.string().default(''),
+            restoreHp: z.number().min(0).max(1).default(0.3),
+            restoreMp: z.number().min(0).max(1).default(0.2),
+            relationDelta: z.number().int().min(0).max(2).default(1),
+            cost: z.object({
+                gold: z.number().int().min(0).default(0),
+                items: z.array(z.object({ itemKey: z.string(), quantity: z.number().int().min(1).max(10).default(1) })).default([]),
+            }).optional(),
+        })).min(1),
+    }).optional(),
     joinCondition: conditionSchema.optional(),
     combat: z.object({
         stats: statsSchema,

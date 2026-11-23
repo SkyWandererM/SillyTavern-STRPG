@@ -6,6 +6,7 @@ import { listQuests } from './quests.js';
 import { availableInteractionsAtCurrentLocation } from './interactions.js';
 import { nowIso, uuid } from './util.js';
 import { proposeRelation, trackerMirror } from './bridge.js';
+import { proposeRecovery, proposeRecruit, proposeTrade, proposeTuition, socialOptions } from './social.js';
 
 const REACTION_FIELDS = new Set(['npcKey', 'emotion', 'attitude', 'thought', 'gesture', 'summary']);
 
@@ -20,6 +21,11 @@ export const TOOL_DEFINITIONS = [
     { name: 'strpg_get_available_interactions', description: 'List NPC interactions at the current location.', input: { campaignId: 'string' } },
     { name: 'strpg_get_bridge_mirror', description: 'Read the read-only STRPG state mirror used for tracker and lorebook sync.', input: { campaignId: 'string' } },
     { name: 'strpg_propose_relation', description: 'Propose an NPC relationship change for human review. Cannot change stats directly.', input: { campaignId: 'string', npcKey: 'string', delta: 'number', reason: 'string', evidence: 'object' } },
+    { name: 'strpg_get_social_options', description: 'Read shop prices, teachable skills, recruit cost and recovery needs for an NPC.', input: { campaignId: 'string', npcKey: 'string' } },
+    { name: 'strpg_propose_trade', description: 'Quote and queue a haggled purchase for approval. The server decides the price floor.', input: { campaignId: 'string', npcKey: 'string', itemKey: 'string', quantity: 'number', offerPrice: 'number' } },
+    { name: 'strpg_propose_recruit', description: 'Queue recruiting an NPC into the party with its configured cost.', input: { campaignId: 'string', npcKey: 'string' } },
+    { name: 'strpg_propose_tuition', description: 'Queue learning a skill from an NPC with its configured tuition.', input: { campaignId: 'string', npcKey: 'string', skillKey: 'string' } },
+    { name: 'strpg_propose_recovery', description: 'Queue an interaction that helps a low-state NPC recover.', input: { campaignId: 'string', npcKey: 'string', method: 'string' } },
 ];
 
 export function callTool(db, name, args = {}) {
@@ -81,6 +87,29 @@ export function callTool(db, name, args = {}) {
             candidate: result.candidate,
             note: 'Queued for review. The relationship changes only after approval.',
         };
+    }
+    if (name === 'strpg_get_social_options') {
+        return socialOptions(db, campaignId, String(args.npcKey ?? ''));
+    }
+    if (name === 'strpg_propose_trade') {
+        const result = proposeTrade(db, campaignId, args);
+        return {
+            accepted: true, authoritative: false, duplicate: result.duplicate,
+            quote: result.quote, candidate: result.candidate,
+            note: 'Queued for review. The player must approve before gold or items move.',
+        };
+    }
+    if (name === 'strpg_propose_recruit') {
+        const result = proposeRecruit(db, campaignId, args);
+        return { accepted: true, authoritative: false, duplicate: result.duplicate, cost: result.cost, candidate: result.candidate, note: 'Recruiting requires player approval.' };
+    }
+    if (name === 'strpg_propose_tuition') {
+        const result = proposeTuition(db, campaignId, args);
+        return { accepted: true, authoritative: false, duplicate: result.duplicate, tuition: result.tuition, candidate: result.candidate, note: 'Tuition requires player approval.' };
+    }
+    if (name === 'strpg_propose_recovery') {
+        const result = proposeRecovery(db, campaignId, args);
+        return { accepted: true, authoritative: false, duplicate: result.duplicate, hpRatio: result.hpRatio, candidate: result.candidate, note: 'Recovery requires player approval.' };
     }
     if (name === 'strpg_propose_character_reaction') {
         const reaction = args.reaction ?? {};

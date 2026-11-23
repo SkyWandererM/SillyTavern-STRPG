@@ -204,6 +204,7 @@ Movement checks:
 | POST | `/campaigns/:id/quests/:key/accept` | Accept |
 | POST | `/campaigns/:id/quests/:key/turn-in` | Turn in |
 | POST | `/campaigns/:id/quests/:key/fail` | Fail |
+| GET | `/campaigns/:id/social/:npcKey` | Prices, teaching offers, recruit cost, recovery need |
 
 Interaction types:
 
@@ -212,6 +213,33 @@ talk | shop | accept_quest | turn_in_quest | join_party | heal | story | custom
 ```
 
 Interaction conditions are structured. Unavailable interactions are returned with `available:false`.
+
+### Social services (M2)
+
+Chat-driven NPC services are proposals first and transactions second. Configure them on the
+NPC asset, then use the tools or the endpoints:
+
+| NPC field | Meaning |
+|---|---|
+| `recruit.cost` | `{gold, items[]}` paid on approval; `relationRequired`, `condition`, `maxParty` gate it |
+| `teaching[]` | `{skillKey, tuition:{gold,items}, relationRequired, condition}` |
+| `recovery` | `{enabled, hpThreshold, methods:[{key,restoreHp,restoreMp,relationDelta,cost}]}` |
+| `shop.haggle` | `{enabled, maxDiscount}` — server computes the price floor |
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/tools/strpg_get_social_options` | `{campaignId,npcKey}` |
+| POST | `/tools/strpg_propose_trade` | `{campaignId,npcKey,itemKey,quantity,offerPrice}` |
+| POST | `/tools/strpg_propose_recruit` | `{campaignId,npcKey}` |
+| POST | `/tools/strpg_propose_tuition` | `{campaignId,npcKey,skillKey}` |
+| POST | `/tools/strpg_propose_recovery` | `{campaignId,npcKey,method}` |
+
+Each returns a `bridge_candidates` row (`trade|recruit|tuition|recovery`). Approval writes
+gold/items, the party flag, the skill or NPC HP inside one transaction.
+
+Combat failure is a first-class event trigger: `combat_defeat` fires scene/world events with
+`targetKey = encounterKey` and advances the story with `combat.defeat`. New event actions:
+`adjust_relation`, `take_item`, `add_memory`, `open_chat`.
 
 ## 8. Inventory, equipment, experience
 
@@ -381,6 +409,11 @@ Semantics:
 | `strpg_get_available_interactions` | NPC interactions | No |
 | `strpg_get_bridge_mirror` | Read-only state mirror | No |
 | `strpg_propose_relation` | Queue an NPC relation change (±2) | No (candidate only) |
+| `strpg_get_social_options` | NPC services catalogue | No |
+| `strpg_propose_trade` | Haggled purchase quote → candidate | No (candidate only) |
+| `strpg_propose_recruit` | Party recruitment → candidate | No (candidate only) |
+| `strpg_propose_tuition` | Skill training → candidate | No (candidate only) |
+| `strpg_propose_recovery` | Help a low-state NPC → candidate | No (candidate only) |
 
 ```http
 POST /tools/strpg_get_status

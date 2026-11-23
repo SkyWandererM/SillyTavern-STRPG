@@ -37,11 +37,12 @@ import { buildMemoryBook, pushMemoryBook } from './memorybook.js';
 import {
     approveCandidate, bridgeStatus, listCandidates, pullTrackerNarrative, rejectCandidate, trackerMirror,
 } from './bridge.js';
+import { socialOptions } from './social.js';
 import { databaseInfo, readSetting, verifySchema, writeSetting } from './db.js';
 import { seedExampleProject } from './seed.js';
 import { idempotent, nowIso, parseJson, uuid, withTransaction } from './util.js';
 
-export const PLUGIN_VERSION = '1.4.0';
+export const PLUGIN_VERSION = '1.5.0';
 
 function wrap(handler) {
     return (req, res, next) => {
@@ -418,6 +419,7 @@ export function createRouter(db) {
 
     // Chat <-> RPG bridge (state mirror, reviewed memory candidates, incremental lorebook)
     router.get('/campaigns/:id/bridge', wrap((req, res) => send(res, bridgeStatus(db, req.params.id))));
+    router.get('/campaigns/:id/social/:npcKey', wrap((req, res) => send(res, socialOptions(db, req.params.id, req.params.npcKey))));
     router.get('/campaigns/:id/bridge/mirror', wrap((req, res) => send(res, trackerMirror(db, req.params.id))));
     router.post('/campaigns/:id/bridge/tracker/pull', wrap((req, res) => {
         send(res, pullTrackerNarrative(db, req.params.id, req.body ?? {}));
@@ -425,8 +427,8 @@ export function createRouter(db) {
     router.get('/campaigns/:id/bridge/candidates', wrap((req, res) => {
         send(res, listCandidates(db, req.params.id, { status: req.query.status, limit: req.query.limit }));
     }));
-    router.post('/campaigns/:id/bridge/candidates/:candidateId/approve', wrap((req, res) => {
-        send(res, approveCandidate(db, req.params.id, req.params.candidateId, { appliedBy: req.body?.appliedBy ?? 'ui' }));
+    router.post('/campaigns/:id/bridge/candidates/:candidateId/approve', wrap(async (req, res) => {
+        send(res, await approveCandidate(db, req.params.id, req.params.candidateId, { appliedBy: req.body?.appliedBy ?? 'ui' }));
     }));
     router.post('/campaigns/:id/bridge/candidates/:candidateId/reject', wrap((req, res) => {
         send(res, rejectCandidate(db, req.params.id, req.params.candidateId, { note: req.body?.note }));

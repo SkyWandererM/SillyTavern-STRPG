@@ -15,7 +15,27 @@
 
 已实测（本机 Emberfall Demo）：旧世界书 13 条无标记条目被识别为遗留并替换，新写入 14 条带 `[STRPG]` 标记的条目，用户手写条目 0 条受影响。
 
-尚未实现（M2/M3）：scope 定义与扫描器、trade/barter tool、角色卡→NPC 导入、`chat` 交互类型。
+尚未实现（M3）：scope 定义与扫描器、trade/barter tool、角色卡→NPC 导入、`chat` 交互类型。
+
+## 0.1 M2 实施状态（v1.5.0 已完成）
+
+| 能力 | 落地位置 |
+|---|---|
+| NPC 服务配置（招募/学费/恢复/砍价） | `npcSchema`：`recruit`、`teaching`、`recovery`、`shop.haggle` |
+| 服务引擎（报价、校验、结算） | `plugin/src/social.js`：`quoteTrade` / `propose*` / `apply*` / `socialOptions` |
+| 服务提案进审核队列 | 候选 kind：`trade` / `recruit` / `tuition` / `recovery`，审批走同一事务与审计 |
+| 5 个新 tool | `strpg_get_social_options`、`strpg_propose_trade`、`strpg_propose_recruit`、`strpg_propose_tuition`、`strpg_propose_recovery` |
+| 战败触发器 | `settleDefeat` 触发 `combat_defeat` 事件 + `advanceStory('combat.defeat')` |
+| 新事件动作 | `adjust_relation`、`take_item`、`add_memory`、`open_chat` |
+| 示例内容 | Borin 教 `quick_slash`（40 金，可砍价）；Mira 60 金可招募；Lina 30 金 + 2 草药可招募，低血量会求助；`defeat_at_shrine` 战败事件 |
+| 测试 | `tests/social.test.js`（9 例，套件合计 57） |
+
+M2 的语义：**聊天里发起 → 服务端报价/校验 → 审核 → 事务结算**。砍价的价格下限由服务端算
+（关系 + 智力/幸运，受 `shop.haggle.maxDiscount` 限制）；低于标价 35% 视为侮辱性报价直接拒绝；
+介于下限与标价之间返回还价。学徒/招募/恢复同样先出候选，批准后才扣钱、入队、学技能或回血。
+
+尚未实现（M3）：scope 扫描器与高级 inbox、劳务抵账生成 quest（service-barter）、
+角色卡→NPC 导入、独立 NPC 聊天模式、`open_chat` 的前端自动拉起。
 
 ---
 

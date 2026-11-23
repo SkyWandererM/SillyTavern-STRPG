@@ -74,7 +74,7 @@ const locations = [
         connections: [
             { toKey: 'greenwood_deep', travelCost: 0, bidirectional: true, mode: 'trail', label: 'Back to the woods' },
         ],
-        eventKeys: ['shrine_discovery'],
+        eventKeys: ['shrine_discovery', 'defeat_at_shrine'],
     },
 ];
 
@@ -86,6 +86,15 @@ const events = [
             { type: 'set_flag', key: 'shrine_found' },
             { type: 'notice', text: 'The dark red sigil on the altar pulses once, as if recognizing you.' },
         ], tags: ['story', 'discovery'],
+    },
+    {
+        key: 'defeat_at_shrine', name: 'The Shrine Takes Its Due', description: 'Losing at the shrine has a price and a witness.',
+        scope: 'scene', sceneKey: 'old_shrine', trigger: 'combat_defeat', once: true,
+        condition: {}, actions: [
+            { type: 'adjust_relation', npcKey: 'elder_mira', delta: -1 },
+            { type: 'add_memory', npcKey: 'elder_mira', text: 'The player was carried back from the Old Ember Shrine after losing to its guardian.' },
+            { type: 'notice', text: 'Elder Mira hears how you fell at the shrine. Her jaw tightens.' },
+        ], tags: ['defeat', 'consequence'],
     },
 ];
 
@@ -110,6 +119,11 @@ const npcs = [
             },
         ],
         questsOffered: ['main_sigil'],
+        recruit: {
+            enabled: true,
+            cost: { gold: 60, items: [] },
+            relationRequired: 0,
+        },
     },
     {
         key: 'herbalist_lina', name: 'Lina the Herbalist', title: 'Herbalist', locationKey: 'mistfall_town',
@@ -135,6 +149,18 @@ const npcs = [
             ],
         },
         questsOffered: ['herb_gathering'],
+        recruit: {
+            enabled: true,
+            cost: { gold: 30, items: [{ itemKey: 'herb', quantity: 2 }] },
+            relationRequired: 0,
+        },
+        recovery: {
+            enabled: true,
+            hpThreshold: 0.4,
+            methods: [
+                { key: 'tend', label: 'Help her sort the herb crates', restoreHp: 0.5, restoreMp: 0.5, relationDelta: 1 },
+            ],
+        },
     },
     {
         key: 'smith_borin', name: 'Borin the Smith', title: 'Forge Master', locationKey: 'mistfall_town',
@@ -162,7 +188,11 @@ const npcs = [
             items: [
                 { itemKey: 'iron_sword' }, { itemKey: 'leather_armor' }, { itemKey: 'moonstone_charm' }, { itemKey: 'scout_boots' },
             ],
+            haggle: { enabled: true, maxDiscount: 0.3 },
         },
+        teaching: [
+            { skillKey: 'quick_slash', tuition: { gold: 40, items: [] }, relationRequired: 0 },
+        ],
         questsOffered: ['wolf_hunt'],
         joinable: true,
         combat: {

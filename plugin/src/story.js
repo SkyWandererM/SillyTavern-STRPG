@@ -1,10 +1,25 @@
 import { ConflictError, NotFoundError } from './errors.js';
-import { evaluateCondition } from './conditions.js';
+import { evaluateCondition, getCampaignVariable } from './conditions.js';
 import { acceptQuest } from './quests.js';
-import { addItem } from './inventory.js';
+import { addItem, removeItem } from './inventory.js';
 import { addExperience, getPlayer, healEntity, unlockSkill } from './stats.js';
 import { getCampaignPackage } from './stats.js';
-import { insertEvent, nowIso, parseJson, withTransaction } from './util.js';
+import { clamp, hashObject, insertEvent, nowIso, parseJson, uuid, withTransaction } from './util.js';
+
+function queueMemoryCandidate(db, campaignId, text, npcKey = null) {
+    const payload = { npcKey, fields: { summary: String(text ?? '').slice(0, 2000) } };
+    if (!payload.fields.summary) return null;
+    const hash = hashObject({ kind: 'narrative', payload });
+    const existing = db.prepare("SELECT id FROM bridge_candidates WHERE campaign_id = ? AND dedupe_hash = ? AND status = 'PENDING'")
+        .get(campaignId, hash);
+    if (existing) return existing.id;
+    const id = uuid('cand_');
+    db.prepare(`
+        INSERT INTO bridge_candidates (id, campaign_id, kind, source, payload_json, evidence_json, confidence, dedupe_hash, status, created_at, note)
+        VALUES (?, ?, 'narrative', 'event', ?, '{}', NULL, ?, 'PENDING', ?, '')
+    `).run(id, campaignId, JSON.stringify(payload), hash, nowIso());
+    return id;
+}
 
 export function getStory(db, campaignId) {
     const pkg = getCampaignPackage(db, campaignId);
@@ -117,6 +132,30 @@ export function applyStoryActions(db, campaignId, actions = [], context = {}) {
                 applied.push({ type: 'ending', key: action.key ?? action.value });
             } else if (action.type === 'notice') {
                 applied.push({ type: 'notice', text: action.text ?? '' });
+            } else if (action.type === 'adjust_relation') {
+                const npcKey = action.npcKey ?? action.key;
+                if (npcKey) {
+                    const delta = clamp(Math.round(Number(action.delta ?? action.amount ?? 1)), -2, 2);
+                    const key = `npc:${npcKey}:relation`;
+                    const before = Number(getCampaignVariable(db, campaignId, key) ?? 0);
+                    const after = clamp(before + delta, -100, 100);
+                    db.prepare(`
+                        INSERT INTO campaign_variables (campaign_id, var_key, value_json, updated_at) VALUES (?, ?, ?, ?)
+                        ON CONFLICT(campaign_id, var_key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+                    `).run(campaignId, key, JSON.stringify(after), nowIso());
+                    applied.push({ type: 'relation', npcKey, delta, before, after });
+                }
+            } else if (action.type === 'take_item') {
+                const player = getPlayer(db, campaignId);
+                const itemKey = action.itemKey ?? action.key;
+                const amount = Math.max(1, Math.round(Number(action.amount ?? 1)));
+                removeItem(db, campaignId, player.id, itemKey, amount, { source: 'event' });
+                applied.push({ type: 'item_removed', itemKey, amount });
+            } else if (action.type === 'add_memory') {
+                const candidateId = queueMemoryCandidate(db, campaignId, action.text ?? action.value, action.npcKey ?? null);
+                applied.push({ type: 'memory', candidateId });
+            } else if (action.type === 'open_chat') {
+                applied.push({ type: 'open_chat', npcKey: action.npcKey ?? action.key ?? null });
             }
         } catch (error) {
             applied.push({ type: 'error', action, message: error.message });

@@ -410,6 +410,10 @@ export function App() {
                 'strpg_propose_encounter',
                 'strpg_propose_character_reaction',
                 'strpg_propose_relation',
+                'strpg_propose_trade',
+                'strpg_propose_recruit',
+                'strpg_propose_tuition',
+                'strpg_propose_recovery',
             ]);
             if (!allowed.has(call.tool)) {
                 notify(`Disallowed tool call: ${call.tool}`, 'warning');
@@ -428,6 +432,8 @@ export function App() {
                     setTab('combat');
                 } else if (call.tool === 'strpg_propose_relation') {
                     notify('Relationship proposal queued for review. Open Integrations -> Bridge to approve it.', 'gold');
+                } else if (['strpg_propose_trade', 'strpg_propose_recruit', 'strpg_propose_tuition', 'strpg_propose_recovery'].includes(call.tool)) {
+                    notify('NPC service proposal queued for review. Open Integrations -> Bridge to accept or decline.', 'gold');
                 } else {
                     notify('LLM narrative reaction proposal recorded; no stats changed.', 'info');
                 }
@@ -443,6 +449,14 @@ export function App() {
             ctx.eventSource?.removeListener?.(events.MESSAGE_RECEIVED, onMessage);
         };
     }, [loadBinding, notify, refresh, selectCampaign, updateChatIdentity]);
+
+    useEffect(() => {
+        const onBridgeChanged = () => {
+            if (activeCampaign) refresh(activeCampaign, { silent: true });
+        };
+        globalThis.window?.addEventListener?.('strpg:bridge-changed', onBridgeChanged);
+        return () => globalThis.window?.removeEventListener?.('strpg:bridge-changed', onBridgeChanged);
+    }, [activeCampaign, refresh]);
 
     useEffect(() => {
         const menu = document.getElementById('extensionsMenu');
@@ -475,6 +489,11 @@ export function App() {
                 '<strpg>{"tool":"strpg_propose_encounter","args":{"monsters":[{"monsterKey":"monster_key","count":1}]}}</strpg>',
                 'If the scene clearly changes an NPC relationship (help, betrayal, gift, promise), you may append one relation proposal. Max ±2, requires player approval:',
                 '<strpg>{"tool":"strpg_propose_relation","args":{"npcKey":"npc_key","delta":1,"reason":"short evidence from the scene"}}</strpg>',
+                'If the player clearly asks to buy or haggle, learn a skill, recruit someone, or help an exhausted companion, you may append one social proposal (proposal only, the player approves):',
+                '<strpg>{"tool":"strpg_propose_trade","args":{"npcKey":"npc_key","itemKey":"item_key","quantity":1,"offerPrice":90}}</strpg>',
+                '<strpg>{"tool":"strpg_propose_tuition","args":{"npcKey":"npc_key","skillKey":"skill_key"}}</strpg>',
+                '<strpg>{"tool":"strpg_propose_recruit","args":{"npcKey":"npc_key"}}</strpg>',
+                '<strpg>{"tool":"strpg_propose_recovery","args":{"npcKey":"npc_key"}}</strpg>',
                 'A proposal is not an action. The player must confirm; never claim the move or combat already happened before STRPG confirms it.',
                 'Do not output SQL, code, or tool calls for direct stat changes.',
             ].join('\n');

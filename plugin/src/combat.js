@@ -425,11 +425,21 @@ function settleDefeat(db, session, rng) {
         WHERE campaign_id = ? AND kind = 'npc' AND json_extract(data_json, '$.party') = 1
     `).run(start?.id ?? campaign.current_location_id, session.campaign_id);
     if (start) db.prepare('UPDATE campaigns SET current_location_id = ?, updated_at = ? WHERE id = ?').run(start.id, nowIso(), session.campaign_id);
+    // Defeat is a first-class trigger: events and the story graph can react to it.
+    const battleLocation = db.prepare('SELECT location_key FROM locations WHERE id = ?').get(session.location_id);
+    const worldEvents = runEventDefinitions(db, session.campaign_id, {
+        trigger: 'combat_defeat',
+        sceneKey: battleLocation?.location_key,
+        targetKey: session.encounter_key,
+    });
+    const story = advanceStory(db, session.campaign_id, { type: 'combat.defeat', targetKey: session.encounter_key });
     const result = {
         outcome: 'defeat',
         goldLost: lostGold,
         revivedAt: start?.location_key ?? null,
         revivedHp,
+        worldEvents,
+        storyEnding: story.ending ?? null,
         summary: `The party was defeated. You wake at ${start?.name ?? 'the start'} and lose ${lostGold} gold.`,
         finishedAt: nowIso(),
     };

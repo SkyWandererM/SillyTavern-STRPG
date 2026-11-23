@@ -155018,6 +155018,7 @@ function IntegrationsPanel({ campaignId, notify }) {
         notify("Candidate rejected.", "info");
       }
       await refreshBridge();
+      globalThis.window?.dispatchEvent?.(new CustomEvent("strpg:bridge-changed"));
     } catch (err) {
       notify(err.message, "danger");
     } finally {
@@ -155250,12 +155251,33 @@ function IntegrationsPanel({ campaignId, notify }) {
     )
   ] });
 }
+function describeCost(cost) {
+  if (!cost) return "nothing";
+  const parts = [];
+  if (Number(cost.gold)) parts.push(`${Number(cost.gold)} gold`);
+  for (const item of cost.items ?? []) parts.push(`${item.itemKey} x${item.quantity}`);
+  return parts.join(" + ") || "nothing";
+}
 function describeCandidate(candidate) {
   if (candidate.kind === "relation") {
     return `Relation ${candidate.payload?.before ?? "?"} \u2192 ${candidate.payload?.after ?? "?"}: ${candidate.payload?.reason ?? ""}`;
   }
   if (candidate.kind === "narrative") {
     return Object.entries(candidate.payload?.fields ?? {}).map(([key, value]) => `${key}: ${value}`).join("  \xB7  ").slice(0, 400);
+  }
+  if (candidate.kind === "trade") {
+    const payload = candidate.payload ?? {};
+    return `${payload.itemName ?? payload.itemKey} x${payload.quantity} @ ${payload.unitPrice} gold (list ${payload.unitList})${payload.countered ? " \u2014 counter-offer" : ""}`;
+  }
+  if (candidate.kind === "recruit") {
+    return `Recruit ${candidate.payload?.npcName ?? candidate.payload?.npcKey} for ${describeCost(candidate.payload?.cost)}`;
+  }
+  if (candidate.kind === "tuition") {
+    return `Learn ${candidate.payload?.skillName ?? candidate.payload?.skillKey} for ${describeCost(candidate.payload?.tuition)}`;
+  }
+  if (candidate.kind === "recovery") {
+    const payload = candidate.payload ?? {};
+    return `${payload.npcName ?? payload.npcKey}: ${payload.label ?? payload.method} \u2014 restore ${Math.round(Number(payload.restoreHp ?? 0) * 100)}% HP, relation +${payload.relationDelta ?? 0}${Number(payload.cost?.gold) ? `, ${payload.cost.gold} gold` : ""}`;
   }
   if (candidate.kind === "flag") return `Flag: ${candidate.payload?.flag ?? ""}`;
   return JSON.stringify(candidate.payload ?? {}).slice(0, 300);
@@ -156065,11 +156087,11 @@ function App() {
       }
     };
     const onMessage = async (messageId) => {
-      const activeCampaign = campaignRef.current;
-      if (!activeCampaign) return;
+      const activeCampaign2 = campaignRef.current;
+      if (!activeCampaign2) return;
       const message = ctx.chat?.[messageId];
       if (!message?.mes) return;
-      void refresh(activeCampaign, { silent: true });
+      void refresh(activeCampaign2, { silent: true });
       const dedupeKey = `${getChatKey()}:${messageId}:${message.swipe_id ?? 0}`;
       if (seenMessages.current.has(dedupeKey)) return;
       const match = String(message.mes).match(/<strpg>\s*([\s\S]*?)\s*<\/strpg>/i) ?? String(message.mes).match(/```(?:strpg|strpg-tool)\s*\n([\s\S]*?)```/i);
@@ -156086,7 +156108,11 @@ function App() {
         "strpg_propose_movement",
         "strpg_propose_encounter",
         "strpg_propose_character_reaction",
-        "strpg_propose_relation"
+        "strpg_propose_relation",
+        "strpg_propose_trade",
+        "strpg_propose_recruit",
+        "strpg_propose_tuition",
+        "strpg_propose_recovery"
       ]);
       if (!allowed.has(call.tool)) {
         notify(`Disallowed tool call: ${call.tool}`, "warning");
@@ -156095,16 +156121,18 @@ function App() {
       try {
         const result = await api(`/tools/${call.tool}`, {
           method: "POST",
-          body: { campaignId: activeCampaign, ...call.args ?? {} }
+          body: { campaignId: activeCampaign2, ...call.args ?? {} }
         });
         if (call.tool === "strpg_propose_movement") {
           setProposal({ result: result.result });
         } else if (call.tool === "strpg_propose_encounter") {
           notify("The LLM proposed a hostile encounter. A combat entrance is now available.", "gold");
-          await refresh(activeCampaign, { silent: true });
+          await refresh(activeCampaign2, { silent: true });
           setTab("combat");
         } else if (call.tool === "strpg_propose_relation") {
           notify("Relationship proposal queued for review. Open Integrations -> Bridge to approve it.", "gold");
+        } else if (["strpg_propose_trade", "strpg_propose_recruit", "strpg_propose_tuition", "strpg_propose_recovery"].includes(call.tool)) {
+          notify("NPC service proposal queued for review. Open Integrations -> Bridge to accept or decline.", "gold");
         } else {
           notify("LLM narrative reaction proposal recorded; no stats changed.", "info");
         }
@@ -156120,6 +156148,13 @@ function App() {
       ctx.eventSource?.removeListener?.(events.MESSAGE_RECEIVED, onMessage);
     };
   }, [loadBinding, notify, refresh, selectCampaign, updateChatIdentity]);
+  (0, import_react22.useEffect)(() => {
+    const onBridgeChanged = () => {
+      if (activeCampaign) refresh(activeCampaign, { silent: true });
+    };
+    globalThis.window?.addEventListener?.("strpg:bridge-changed", onBridgeChanged);
+    return () => globalThis.window?.removeEventListener?.("strpg:bridge-changed", onBridgeChanged);
+  }, [activeCampaign, refresh]);
   (0, import_react22.useEffect)(() => {
     const menu = document.getElementById("extensionsMenu");
     if (!menu) return void 0;
@@ -156150,6 +156185,11 @@ function App() {
         '<strpg>{"tool":"strpg_propose_encounter","args":{"monsters":[{"monsterKey":"monster_key","count":1}]}}</strpg>',
         "If the scene clearly changes an NPC relationship (help, betrayal, gift, promise), you may append one relation proposal. Max \xB12, requires player approval:",
         '<strpg>{"tool":"strpg_propose_relation","args":{"npcKey":"npc_key","delta":1,"reason":"short evidence from the scene"}}</strpg>',
+        "If the player clearly asks to buy or haggle, learn a skill, recruit someone, or help an exhausted companion, you may append one social proposal (proposal only, the player approves):",
+        '<strpg>{"tool":"strpg_propose_trade","args":{"npcKey":"npc_key","itemKey":"item_key","quantity":1,"offerPrice":90}}</strpg>',
+        '<strpg>{"tool":"strpg_propose_tuition","args":{"npcKey":"npc_key","skillKey":"skill_key"}}</strpg>',
+        '<strpg>{"tool":"strpg_propose_recruit","args":{"npcKey":"npc_key"}}</strpg>',
+        '<strpg>{"tool":"strpg_propose_recovery","args":{"npcKey":"npc_key"}}</strpg>',
         "A proposal is not an action. The player must confirm; never claim the move or combat already happened before STRPG confirms it.",
         "Do not output SQL, code, or tool calls for direct stat changes."
       ].join("\n");
