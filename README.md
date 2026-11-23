@@ -204,6 +204,7 @@ Unimplemented or partial features are marked in the UI and docs. They are not pr
 - [Changelog 1.2.1](docs/CHANGELOG-1.2.1.md)
 - [Changelog 1.3.0](docs/CHANGELOG-1.3.0.md)
 - [Class and Rules](docs/CLASS_RULES.md)
+- [Chat ↔ RPG Bridge (design)](docs/CHAT_BRIDGE.md)
 - [Acceptance](docs/ACCEPTANCE.md)
 - [JSON Schema](schema/strpg-game-package.schema.json)
 - [Example game package](examples/emberfall.game-package.json)
